@@ -1,5 +1,5 @@
 """
-简化的MCP客户端服务 - 仅支持URL配置
+MCP client service
 """
 
 import asyncio
@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger(__name__)
 
 class MCPClientService:
-    """简化的MCP客户端服务 - 仅支持LangChain集成和URL配置"""
+    """LangChain MCP client service"""
     
     def __init__(self):
         self._langchain_client = None
@@ -17,15 +17,15 @@ class MCPClientService:
         self._initialized = False
         
     async def initialize(self):
-        """初始化MCP客户端"""
+        """Initialize the MCP client"""
         if self._initialized:
             return
             
         try:
-            # 尝试导入LangChain MCP适配器
+            # try to import the LangChain MCP adapter
             from langchain_mcp_adapters.client import MultiServerMCPClient
             
-            # 固定配置 - 只支持URL方式
+            # fixed configuration - only support URL
             langchain_config = {
                 "mcp_server_chart": {
                     "url": "http://localhost:1122/mcp",
@@ -39,15 +39,15 @@ class MCPClientService:
             
             self._langchain_client = MultiServerMCPClient(langchain_config)
             self._initialized = True
-            logger.info("MCP客户端初始化成功")
+            logger.info("MCP client initialized successfully")
             
         except ImportError:
-            logger.warning("langchain-mcp-adapters未安装，MCP功能不可用")
+            logger.warning("langchain-mcp-adapters is not installed, MCP functionality is not available")
         except Exception as e:
-            logger.error(f"MCP客户端初始化失败: {e}")
+            logger.error(f"MCP client initialization failed: {e}")
     
     async def get_tools(self):
-        """获取可用工具列表"""
+        """Get the available tool list"""
         if not self._initialized:
             await self.initialize()
             
@@ -57,35 +57,35 @@ class MCPClientService:
         try:
             if self._tools_cache is None:
                 self._tools_cache = await self._langchain_client.get_tools()
-                logger.info(f"获取到 {len(self._tools_cache)} 个MCP工具")
+                logger.info(f"Got {len(self._tools_cache)} MCP tools")
             return self._tools_cache
         except Exception as e:
-            logger.error(f"获取MCP工具失败: {e}")
+            logger.error(f"Failed to get MCP tools: {e}")
             return []
     
     async def create_react_agent(self, llm):
-        """创建ReAct智能体"""
+        """Create a ReAct agent"""
         try:
             from langgraph.prebuilt import create_react_agent
             
             tools = await self.get_tools()
             if not tools:
-                logger.warning("没有可用的工具，无法创建ReAct智能体")
+                logger.warning("No available tools, cannot create a ReAct agent")
                 return None
                 
             agent = create_react_agent(llm, tools)
-            logger.info("ReAct智能体创建成功")
+            logger.info("ReAct agent created successfully")
             return agent
             
         except ImportError:
-            logger.error("langgraph未安装，无法创建ReAct智能体")
+            logger.error("langgraph is not installed, cannot create a ReAct agent")
             return None
         except Exception as e:
-            logger.error(f"创建ReAct智能体失败: {e}")
+            logger.error(f"Failed to create a ReAct agent: {e}")
             return None
     
     async def close(self):
-        """清理资源"""
+        """Clean up the resources"""
         if self._langchain_client:
             try:
                 await self._langchain_client.close()
@@ -95,5 +95,5 @@ class MCPClientService:
         self._tools_cache = None
         self._initialized = False
 
-# 全局MCP客户端服务实例
+# Global MCP client service instance
 mcp_client_service = MCPClientService()
