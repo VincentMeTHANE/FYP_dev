@@ -110,3 +110,8 @@ class ReportListResponse(BaseModel):
     page_size: int = Field(..., description="每页大小")
     total_pages: int = Field(..., description="总页数")
     reports: List[ReportResponse] = Field(..., description="报告列表")
+
+class ReportLockRequest(BaseModel):
+    """报告锁定请求模型"""
+    report_id: str = Field(..., description="报告ID")
+    locked: bool = Field(..., description="锁定状态")

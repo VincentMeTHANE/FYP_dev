@@ -25,3 +25,14 @@ class UpdateQuestion(BaseModel):
     """Update the question to the user, in order to enrich the plan of the whole report."""
     report_id: Optional[str] = None  # string type, support MongoDB ObjectId
     message: Optional[str] = ""
+
+class LLMMessage(BaseModel):
+    """大模型请求模型"""
+    message: Optional[str] = ""
+    report_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
+
+class UpdatePlan(BaseModel):
+    """大模型请求模型"""
+    report_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
+    plan_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
+    plan: Optional[str] = ""
