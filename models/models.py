@@ -109,3 +109,9 @@ class TavilyKeyResponse(BaseModel):
     usage_count: int
     remaining: int
     is_available: bool
+
+class LLMMessageFinal(BaseModel):
+    """最终报告请求模型"""
+    report_id: str  # 报告ID
+    split_id: str   # 分割ID
+    requirement: Optional[str] = ""  # 要求字段保持不变
