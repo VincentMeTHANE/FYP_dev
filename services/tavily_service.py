@@ -32,16 +32,13 @@ class TavilyService:
         start_time = time.time()
         
         try:
-            # 获取可用的API Key
-            key_info = api_key_manager.get_available_key()
-            if not key_info:
-                # 如果没有可用的数据库API Key，尝试从配置中获取（临时方案）
-                api_key = getattr(settings, 'TAVILY_API_KEY', None)
-                if not api_key:
-                    raise ValueError("没有可用的Tavily API Key")
-                logger.warning("使用配置文件中的API Key，建议在数据库中添加API Key")
-            else:
-                api_key = key_info.api_key
+            # 直接从配置文件获取API Key
+            api_key = getattr(settings, 'TAVILY_API_KEY', None)
+            if not api_key:
+                raise ValueError("没有配置Tavily API Key，请检查config.py中的TAVILY_API_KEY配置")
+            
+            if api_key == "tvly-YOUR_API_KEY_HERE":
+                logger.warning("检测到默认的Tavily API Key占位符，请更新config.py中的TAVILY_API_KEY")
             
             # 准备搜索请求
             search_data = {

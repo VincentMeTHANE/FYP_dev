@@ -175,7 +175,7 @@ async def search(
         logger.info(f"开始执行搜索，查询: {request.query}, task_id: {request.task_id}")
         
         # 获取任务信息
-        task_info = get_task_info(request.task_id)
+        task_info = await get_task_info(request.task_id)
         if not task_info:
             raise BizError(
                 code=ErrorCode.get_code(ErrorCode.TASK_NOT_EXIST),
@@ -212,13 +212,14 @@ async def search(
         # 更新serp_task状态为searchCompleted
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchCompleted")
         
-        # 构造响应数据
+        # 构造响应数据 - 需要将Pydantic模型转换为字典
         response_data = {
             "task_id": request.task_id,
             "query": request.query,
             "response_time": tavily_response.response_time,
-            "images": tavily_response.images or [],
-            "sources": tavily_response.results,
+            "images": [img.model_dump() if hasattr(img, 'model_dump') else {"url": img.url, "description": img.description} 
+                      for img in (tavily_response.images or [])],
+            "sources": tavily_response.results or [],
         }
         
         # 存储响应数据
