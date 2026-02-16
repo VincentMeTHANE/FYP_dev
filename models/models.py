@@ -115,3 +115,15 @@ class LLMMessageFinal(BaseModel):
     report_id: str  # 报告ID
     split_id: str   # 分割ID
     requirement: Optional[str] = ""  # 要求字段保持不变
+
+class LLMMessage1(BaseModel):
+    """大模型请求模型"""
+    plan: Optional[str] = ""
+    current: Optional[str] = ""
+    report_id: Optional[str] = None
+
+class LLMMessageSearchSummary(BaseModel):
+    """大模型请求模型"""
+    report_id: Optional[str] = None
+    search_id: Optional[str] = ""
+    task_id: Optional[str] = ""

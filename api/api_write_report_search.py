@@ -6,12 +6,14 @@ import logging
 import datetime
 import asyncio
 import aiohttp
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
+
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends  # type: ignore
 from sqlalchemy.orm import Session
 from bson import ObjectId
 
-from models.models import SearchRequest, SearchResponse, TavilySearchRequest
+from models.models import SearchResponse, TavilySearchRequest
 from services.tavily_service import tavily_service
 from services.report_service import report_service
 from services.task_service import get_task_info
@@ -26,9 +28,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class SearchRequestWithTaskId(SearchRequest):
-    """搜索请求模型 - 使用task_id"""
+class SearchRequestWithTaskId(BaseModel):
+    """搜索请求模型 - 仅使用task_id，可选其他搜索参数"""
     task_id: str
+    max_results: Optional[int] = 10
+    include_images: Optional[bool] = True
+    include_domains: Optional[List[str]] = None
+    exclude_domains: Optional[List[str]] = None
 
 
 async def _store_search_results(
@@ -172,7 +178,7 @@ async def search(
         Result: 搜索结果
     """
     try:
-        logger.info(f"开始执行搜索，查询: {request.query}, task_id: {request.task_id}")
+        logger.info(f"开始执行搜索，task_id: {request.task_id}")
         
         # 获取任务信息
         task_info = await get_task_info(request.task_id)
@@ -182,18 +188,28 @@ async def search(
                 message=ErrorCode.get_message(ErrorCode.TASK_NOT_EXIST)
             )
         
+        # 从task_info中获取query
+        query = task_info.get("query", "")
+        if not query:
+            raise BizError(
+                code=ErrorCode.get_code(ErrorCode.PARAM_ERROR),
+                message="任务中未包含查询语句"
+            )
+        
         report_id = task_info["report_id"]
         plan_id = task_info["plan_id"]
         
         # 构造Tavily搜索请求
         tavily_request = TavilySearchRequest(
-            query=request.query,
+            query=query,
             search_depth="advanced" if request.max_results > 5 else "basic",
             include_answer=True,
             include_raw_content=request.include_images,
             max_results=request.max_results,
             include_images=request.include_images,
-            include_image_descriptions=True
+            include_image_descriptions=True,
+            include_domains=request.include_domains,
+            exclude_domains=request.exclude_domains
         )
         
         # 执行搜索
@@ -204,7 +220,7 @@ async def search(
             request.task_id,
             report_id,
             plan_id,
-            request.query,
+            query,
             tavily_response,
             mongo_db
         )
@@ -215,7 +231,7 @@ async def search(
         # 构造响应数据 - 需要将Pydantic模型转换为字典
         response_data = {
             "task_id": request.task_id,
-            "query": request.query,
+            "query": query,
             "response_time": tavily_response.response_time,
             "images": [img.model_dump() if hasattr(img, 'model_dump') else {"url": img.url, "description": img.description} 
                       for img in (tavily_response.images or [])],
