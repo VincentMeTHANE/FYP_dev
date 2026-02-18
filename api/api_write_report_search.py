@@ -22,6 +22,7 @@ from services.mongo_api_service_manager import mongo_api_service_manager
 from utils.exception_handler import ErrorCode
 from utils.response_models import Result, BizError
 from services.image_service import image_service
+from utils.distributed_lock import create_async_lock
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ router = APIRouter()
 class SearchRequestWithTaskId(BaseModel):
     """搜索请求模型 - 仅使用task_id，可选其他搜索参数"""
     task_id: str
-    max_results: Optional[int] = 10
+    max_results: Optional[int] = 5
     include_images: Optional[bool] = True
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
@@ -169,14 +170,23 @@ async def search(
 ):
     """
     执行Tavily搜索
-    
+
     Args:
         request: 搜索请求
         db: 数据库会话
-        
+
     Returns:
         Result: 搜索结果
     """
+    # 创建分布式锁，锁的key基于task_id，确保同一任务只有一个请求能执行搜索
+    lock_key = f"search_task_{request.task_id}"
+    lock = create_async_lock(lock_key, timeout=30, retry_interval=0.1)
+
+    # 尝试获取分布式锁，最多等待5秒
+    if not await lock.acquire(blocking=True, timeout=5):
+        logger.warning(f"获取分布式锁失败，task_id: {request.task_id} 正在被其他请求处理")
+        raise HTTPException(status_code=429, detail="该任务正在处理中，请稍后重试")
+
     try:
         logger.info(f"开始执行搜索，task_id: {request.task_id}")
         
@@ -243,18 +253,26 @@ async def search(
         
         logger.info(f"搜索完成，task_id: {request.task_id}, 存储记录数: {stored_count}")
         return Result.success(response_data)
-        
+
     except BizError as e:
         # 更新serp_task状态为searchFailed
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchFailed")
         logger.error(f"业务错误: {e.message}")
         raise HTTPException(status_code=400, detail=e.message)
-        
+
     except Exception as e:
         # 更新serp_task状态为searchFailed
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchFailed")
         logger.error(f"搜索失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+
+    finally:
+        # 释放分布式锁
+        try:
+            await lock.release()
+            logger.info(f"释放分布式锁成功，task_id: {request.task_id}")
+        except Exception as e:
+            logger.error(f"释放分布式锁失败: {str(e)}")
 
 
 @router.get("/detail/{task_id}", response_model=Result)
