@@ -32,7 +32,7 @@ router = APIRouter()
 class SearchRequestWithTaskId(BaseModel):
     """搜索请求模型 - 仅使用task_id，可选其他搜索参数"""
     task_id: str
-    max_results: Optional[int] = 5
+    max_results: Optional[int] = 10
     include_images: Optional[bool] = True
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
