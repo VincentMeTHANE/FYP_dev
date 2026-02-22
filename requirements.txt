@@ -1,0 +1,32 @@
+# Core Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+pymongo==4.6.1
+redis==5.0.1
+
+# LLM & AI Services
+httpx==0.26.0
+openai==1.12.0
+
+# Document Generation
+reportlab==4.0.9
+python-docx==1.1.0
+markdown==3.5.2
+
+# Logging
+python-multipart==0.0.6
+
+# Utilities
+python-dotenv==1.0.0
+urllib3==2.1.0
+aiofiles==23.2.1
+
+# For JSON handling
+orjson==3.9.15
+
+# For async operations
+asyncio==3.4.3
