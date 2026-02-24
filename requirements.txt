@@ -21,7 +21,7 @@ langchain-mcp-adapters>=0.1.0
 reportlab>=4.0.0
 
 # RAG - Vector Database
-qdrant-client>=1.7.0
+qdrant-client==1.7.0
 
 # RAG - Text Processing
 pypdf>=3.0.0

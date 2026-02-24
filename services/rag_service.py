@@ -421,15 +421,18 @@ class RAGService:
         
         try:
             # 连接 Qdrant
+            logger.info(f"Connecting to Qdrant at {settings.QDRANT_HOST}:{settings.QDRANT_PORT}")
+            # 使用 url 参数连接到 Qdrant REST API
             self._qdrant_client = QdrantClient(
-                host=settings.QDRANT_HOST,
-                port=settings.QDRANT_PORT,
+                url=f"http://{settings.QDRANT_HOST}:{settings.QDRANT_PORT}",
                 timeout=30
             )
             
-            # 检查并创建集合
-            collections = self._qdrant_client.get_collections().collections
-            collection_names = [c.name for c in collections]
+            # 测试连接
+            collections = self._qdrant_client.get_collections()
+            logger.info(f"Connected to Qdrant, available collections: {[c.name for c in collections.collections]}")
+            
+            collection_names = [c.name for c in collections.collections]
             
             if settings.QDRANT_COLLECTION not in collection_names:
                 self._qdrant_client.create_collection(
@@ -446,6 +449,7 @@ class RAGService:
             
         except Exception as e:
             logger.error(f"Failed to initialize RAG service: {str(e)}")
+            self._qdrant_client = None
             raise
     
     async def _ensure_initialized(self):
@@ -581,19 +585,37 @@ class RAGService:
         try:
             collection = mongo_db["rag_documents"]
             
-            document = {
-                "_id": doc_id,
-                "filename": filename,
-                "file_type": file_type,
-                "chunk_count": chunk_count,
-                "metadata": metadata,
-                "status": "active",
-                "created_at": datetime.now(),
-                "updated_at": datetime.now()
-            }
+            # 检查文档是否已存在
+            existing_doc = collection.find_one({"_id": doc_id})
             
-            collection.insert_one(document)
-            logger.info(f"Saved document metadata: {doc_id}")
+            if existing_doc:
+                # 文档已存在，更新状态为 active
+                collection.update_one(
+                    {"_id": doc_id},
+                    {"$set": {
+                        "filename": filename,
+                        "file_type": file_type,
+                        "chunk_count": chunk_count,
+                        "metadata": metadata,
+                        "status": "active",
+                        "updated_at": datetime.now()
+                    }}
+                )
+                logger.info(f"Updated document metadata: {doc_id}")
+            else:
+                # 新文档，插入
+                document = {
+                    "_id": doc_id,
+                    "filename": filename,
+                    "file_type": file_type,
+                    "chunk_count": chunk_count,
+                    "metadata": metadata,
+                    "status": "active",
+                    "created_at": datetime.now(),
+                    "updated_at": datetime.now()
+                }
+                collection.insert_one(document)
+                logger.info(f"Saved document metadata: {doc_id}")
             
         except Exception as e:
             logger.error(f"Failed to save document metadata: {str(e)}")
@@ -621,6 +643,15 @@ class RAGService:
         """
         await self._ensure_initialized()
         
+        # 检查客户端是否有效
+        if not self._qdrant_client:
+            logger.warning("Qdrant client is not initialized")
+            return []
+        
+        # 调试：检查客户端类型和方法
+        logger.debug(f"Qdrant client type: {type(self._qdrant_client)}")
+        logger.debug(f"Qdrant client has search: {hasattr(self._qdrant_client, 'search')}")
+        
         collection_name = collection_name or settings.QDRANT_COLLECTION
         
         # 向量化查询
@@ -642,13 +673,17 @@ class RAGService:
                 qdrant_filter = Filter(must=conditions)
         
         # 搜索
-        search_results = self._qdrant_client.search(
-            collection_name=collection_name,
-            query_vector=query_embedding,
-            limit=top_k,
-            query_filter=qdrant_filter,
-            score_threshold=score_threshold
-        )
+        try:
+            search_results = self._qdrant_client.search(
+                collection_name=collection_name,
+                query_vector=query_embedding,
+                limit=top_k,
+                query_filter=qdrant_filter,
+                score_threshold=score_threshold
+            )
+        except Exception as e:
+            logger.error(f"Qdrant search failed: {str(e)}")
+            return []
         
         # 转换为 KnowledgeChunk 对象
         chunks = []
