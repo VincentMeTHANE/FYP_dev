@@ -47,17 +47,27 @@ class Document:
 
 
 class EmbeddingService:
-    """向量化服务"""
-    
+    """向量化服务 - 支持阿里云百炼、OpenAI 和本地模型"""
+
     def __init__(self):
         self.embedding_model = settings.RAG_EMBEDDING_MODEL
-        self.api_key = settings.OPENAI_API_KEY
-        self.base_url = settings.OPENAI_EMBEDDING_BASE_URL
+        self.provider = settings.RAG_EMBEDDING_PROVIDER
         self.vector_size = settings.QDRANT_VECTOR_SIZE
         self._client = None
-    
+
+        # 根据 provider 选择不同的配置
+        if self.provider == "dashscope":
+            self.api_key = settings.DASHSCOPE_API_KEY
+            self.base_url = settings.DASHSCOPE_EMBEDDING_BASE_URL
+        elif self.provider == "openai":
+            self.api_key = settings.OPENAI_API_KEY
+            self.base_url = settings.OPENAI_EMBEDDING_BASE_URL
+        else:
+            self.api_key = None
+            self.base_url = None
+
     async def _get_client(self):
-        """获取 OpenAI 客户端"""
+        """获取 HTTP 客户端"""
         if self._client is None:
             import httpx
             self._client = httpx.AsyncClient(
@@ -69,48 +79,131 @@ class EmbeddingService:
                 timeout=60.0
             )
         return self._client
-    
+
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """
         将文本列表向量化
-        
+
         Args:
             texts: 文本列表
-            
+
         Returns:
             向量列表
         """
         try:
-            client = await self._get_client()
-            
+            if self.provider == "dashscope":
+                return await self._embed_with_dashscope(texts)
+            elif self.provider == "openai":
+                return await self._embed_with_openai(texts)
+            elif self.provider == "local":
+                return await self._embed_with_local(texts)
+            else:
+                raise ValueError(f"Unsupported embedding provider: {self.provider}")
+
+        except Exception as e:
+            logger.error(f"Failed to embed texts: {str(e)}")
+            raise
+
+    async def _embed_with_dashscope(self, texts: List[str]) -> List[List[float]]:
+        """使用阿里云百炼 embedding API"""
+        # 检查输入
+        if not texts:
+            logger.warning("Empty texts list provided to embed_texts")
+            return []
+
+        # 过滤空字符串
+        texts = [t for t in texts if t and t.strip()]
+        if not texts:
+            logger.warning("All texts are empty after filtering")
+            return []
+
+        logger.info(f"Dashscope embedding: {len(texts)} texts, model: {self.embedding_model}")
+
+        client = await self._get_client()
+
+        # 阿里云限制每次最多 10 个文本，需要分批处理
+        batch_size = 10
+        all_embeddings = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1}: {len(batch)} texts")
+
             response = await client.post(
                 "/embeddings",
                 json={
                     "model": self.embedding_model,
-                    "input": texts
+                    "input": batch
                 }
             )
-            
+
             if response.status_code != 200:
-                raise Exception(f"Embedding API error: {response.text}")
-            
+                raise Exception(f"Dashscope Embedding API error: {response.text}")
+
             result = response.json()
             embeddings = [item["embedding"] for item in result["data"]]
-            
-            logger.info(f"Successfully embedded {len(texts)} texts")
-            return embeddings
-            
+            all_embeddings.extend(embeddings)
+
+        logger.info(f"Dashscope: Successfully embedded {len(texts)} texts")
+        return all_embeddings
+
+    async def _embed_with_openai(self, texts: List[str]) -> List[List[float]]:
+        """使用 OpenAI embedding API"""
+        if not texts:
+            return []
+
+        client = await self._get_client()
+
+        # OpenAI 限制每次最多 2048 个输入，分批处理
+        batch_size = 100
+        all_embeddings = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
+            response = await client.post(
+                "/embeddings",
+                json={
+                    "model": self.embedding_model,
+                    "input": batch
+                }
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"OpenAI Embedding API error: {response.text}")
+
+            result = response.json()
+            embeddings = [item["embedding"] for item in result["data"]]
+            all_embeddings.extend(embeddings)
+
+        logger.info(f"OpenAI: Successfully embedded {len(texts)} texts")
+        return all_embeddings
+
+    async def _embed_with_local(self, texts: List[str]) -> List[List[float]]:
+        """使用本地 embedding 模型"""
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            if not hasattr(self, "_local_model"):
+                self._local_model = SentenceTransformer(self.embedding_model)
+
+            embeddings = self._local_model.encode(texts, convert_to_numpy=True)
+            result = [emb.tolist() for emb in embeddings]
+
+            logger.info(f"Local: Successfully embedded {len(texts)} texts")
+            return result
+
         except Exception as e:
-            logger.error(f"Failed to embed texts: {str(e)}")
+            logger.error(f"Local embedding failed: {str(e)}")
             raise
-    
+
     async def embed_query(self, query: str) -> List[float]:
         """
         将查询向量化
-        
+
         Args:
             query: 查询文本
-            
+
         Returns:
             查询向量
         """
@@ -135,8 +228,8 @@ class DocumentProcessor:
         """
         try:
             from pypdf import PdfReader
-            from langchain.text_splitter import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-            
+            from langchain.text_splitter import RecursiveCharacterTextSplitter
+
             # 读取 PDF
             import io
             pdf_file = io.BytesIO(file_content)
@@ -404,17 +497,29 @@ class RAGService:
                 doc["metadata"].update(metadata)
         
         doc_id = hashlib.md5(filename.encode()).hexdigest()[:16]
-        
+
         # 提取文本内容进行向量化
         texts = [doc["content"] for doc in documents]
-        
+
+        # 检查提取的文本
+        if not texts:
+            raise ValueError(f"No text content extracted from file: {filename}")
+
+        # 过滤空内容
+        texts = [t for t in texts if t and t.strip()]
+        if not texts:
+            raise ValueError(f"All document chunks are empty after processing: {filename}")
+
+        logger.info(f"Processing document: {filename}, chunks: {len(texts)}")
+
         # 向量化
         embeddings = await self.embedding_service.embed_texts(texts)
         
         # 构建向量点
         points = []
         for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
-            point_id = f"{doc_id}_{idx}"
+            # Qdrant 要求 point_id 是 unsigned integer 或 UUID
+            point_id = idx  # 使用整数索引
             
             # 合并所有元数据
             point_metadata = {
@@ -583,21 +688,19 @@ class RAGService:
         collection_name = collection_name or settings.QDRANT_COLLECTION
         
         try:
-            # 删除向量
+            # 删除向量 - 使用正确的 Qdrant API 格式
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+
             self._qdrant_client.delete(
                 collection_name=collection_name,
-                points_selector={
-                    "filter": {
-                        "must": [
-                            {
-                                "key": "document_id",
-                                "match": {
-                                    "value": doc_id
-                                }
-                            }
-                        ]
-                    }
-                }
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="document_id",
+                            match=MatchValue(value=doc_id)
+                        )
+                    ]
+                )
             )
             
             # 更新 MongoDB 中的文档状态
