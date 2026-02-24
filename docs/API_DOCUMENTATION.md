@@ -4,7 +4,7 @@
 
 **项目名称**: Deep Research Python  
 **版本**: 2.0.0  
-**技术栈**: FastAPI + LangChain + MCP + MongoDB  
+**技术栈**: FastAPI + LangChain + MongoDB  
 **描述**: 基于 LangChain ReAct 智能体的深度研究报告生成系统
 
 ---
@@ -715,8 +715,3 @@ class Result(BaseModel, Generic[T]):
 4. **知识库检索**: 搜索接口支持混合搜索模式，可同时搜索网络和本地知识库
 
 5. **PDF/Word导出**: 最终报告支持导出为 PDF 和 Word 格式
-
----
-
-*文档生成时间: 2024年*
-*项目版本: 2.0.0*

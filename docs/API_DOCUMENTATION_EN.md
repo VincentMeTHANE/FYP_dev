@@ -4,7 +4,7 @@
 
 **Project Name**: Deep Research Python  
 **Version**: 2.0.0  
-**Tech Stack**: FastAPI + LangChain + MCP + MongoDB  
+**Tech Stack**: FastAPI + LangChain + MongoDB  
 **Description**: Deep Research Report Generation System based on LangChain ReAct Agent
 
 ---
@@ -715,8 +715,3 @@ The complete flow for deep research report generation is as follows:
 4. **Knowledge Base Retrieval**: Search APIs support hybrid search mode, enabling simultaneous web and local knowledge base searches
 
 5. **PDF/Word Export**: Final reports support export in PDF and Word formats
-
----
-
-*Document Generated: 2024*
-*Project Version: 2.0.0*
