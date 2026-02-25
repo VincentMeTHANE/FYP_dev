@@ -27,7 +27,7 @@ router = APIRouter()
 def _get_search_data_and_build_context(task_id: str):
     try:
         collection = mongo_db.search_results
-        
+
         # 查询数据
         results = collection.find({"task_id": task_id})
         results_list = list(results)  # 转换为列表
@@ -35,51 +35,69 @@ def _get_search_data_and_build_context(task_id: str):
             logger.warning(f"未找到task_id为 {task_id} 的数据")
             return [], [], ""
 
-        # 定义空数组
+        # 定义空数组 - 区分知识库和网络来源
         images = []
-        sources = []
+        knowledge_sources = []  # 知识库来源
+        online_sources = []     # 网络来源
 
-        # 遍历 results_list，合并 images 和 sources 数组
+        # 遍历 results_list，区分不同来源
         for doc in results_list:
-            # 合并 images 数组（现在直接从每条记录的images字段获取）
-            if "images" in doc and isinstance(doc["images"], list):
+            doc_type = doc.get("type", "online")
+
+            # 合并 images 数组（仅从网络来源获取图片）
+            if doc_type == "online" and "images" in doc and isinstance(doc["images"], list):
                 images.extend(doc["images"])
 
-            # 合并 sources 数组
+            # 构建来源数据
             source = {
                 "title": doc.get("title", ""),
                 "url": doc.get("url", ""),
-                "content": doc.get("content", ""),  # 保持与原接口一致
-                "raw_content": doc.get("raw_content", ""),  # 保持与原接口一致
+                "content": doc.get("content", ""),
+                "raw_content": doc.get("raw_content", ""),
                 "published_date": doc.get("published_date"),
                 "score": doc.get("score"),
-                "result_index": doc.get("result_index")
+                "result_index": doc.get("result_index"),
+                "type": doc_type
             }
-            sources.append(source)
-        
-        # 生成context，模拟JavaScript代码的逻辑
+
+            if doc_type == "knowledge":
+                knowledge_sources.append(source)
+            else:
+                online_sources.append(source)
+
+        # 合并所有 sources 用于返回
+        all_sources = knowledge_sources + online_sources
+
+        # 构建 context - 知识库内容优先
         context_parts = []
-        for idx, source in enumerate(sources):
-            logger.info(f"source: {source}")
-            # 为每个source添加num字段（从1开始）
-            source_with_num = dict(source)
-            raw_content = source_with_num.get("raw_content", "")
-            # 添加 None 检查，确保 raw_content 不为 None
+
+        # 先添加知识库内容
+        for source in knowledge_sources:
+            raw_content = source.get("raw_content", "")
             if raw_content is None:
                 raw_content = ""
-            # 如果raw_content的len大于100，则为有效数据
             if len(raw_content) > 100:
-                # 如果raw_content的len大于10000字，则截取1w字
                 if len(raw_content) > 10000:
                     raw_content = raw_content[:10000]
-                context_part = f'<content index="{source_with_num.get("result_index", "")}" url="{source_with_num.get("url", "")}" title="{source_with_num.get("title", "")}">\n{raw_content}\n</content>'
+                context_part = f'<content index="{source.get("result_index", "")}" type="knowledge" source="knowledge_base" document="{source.get("title", "")}">\n{raw_content}\n</content>'
+                context_parts.append(context_part)
+
+        # 再添加网络内容
+        for source in online_sources:
+            raw_content = source.get("raw_content", "")
+            if raw_content is None:
+                raw_content = ""
+            if len(raw_content) > 100:
+                if len(raw_content) > 10000:
+                    raw_content = raw_content[:10000]
+                context_part = f'<content index="{source.get("result_index", "")}" type="online" source="web" url="{source.get("url", "")}">\n{raw_content}\n</content>'
                 context_parts.append(context_part)
 
         context = "\n".join(context_parts)
-        
-        logger.info(f"成功构建context，包含 {len(sources)} 个源")
-        return images, sources, context
-        
+
+        logger.info(f"成功构建context，包含 {len(knowledge_sources)} 个知识库源, {len(online_sources)} 个网络源")
+        return images, all_sources, context
+
     except Exception as e:
         logger.error(f"查询搜索数据失败: {str(e)}")
         raise ValueError(f"查询搜索数据失败: {str(e)}")

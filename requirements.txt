@@ -19,3 +19,15 @@ langchain-openai>=0.1.0
 langgraph>=0.2.0
 langchain-mcp-adapters>=0.1.0
 reportlab>=4.0.0
+
+# RAG - Vector Database
+qdrant-client==1.7.0
+
+# RAG - Text Processing
+pypdf>=3.0.0
+markdown>=3.4.0
+python-markdown>=3.4.0
+
+# RAG - Embedding
+openai>=1.0.0
+tiktoken>=0.5.0

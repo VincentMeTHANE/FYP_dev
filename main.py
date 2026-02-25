@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from config import settings
 from api import setup_routers
 from services.mcp_client_service import mcp_client_service
+from services.rag_service import rag_service
 from utils.logger import init_logging, get_logger
 from utils.exception_handler import setup_exception_handlers
 
@@ -27,14 +28,17 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Life span for MCP service and the logging service"""
-    logger.info("Initialzing the MCP and logging service")
-    
+    """Life span for MCP service, RAG service and the logging service"""
+    logger.info("Initialzing the MCP, RAG and logging service")
+
     # initialize the MCP client
     await _initialize_mcp_client()
-    
+
+    # initialize the RAG service (Qdrant)
+    await _initialize_rag_service()
+
     yield
-    
+
     # clean the resources
     await mcp_client_service.close()
     logger.info("Shutting down the services")
@@ -46,9 +50,17 @@ async def _initialize_mcp_client():
         tools = await mcp_client_service.get_tools()
         tool_names = [tool.name for tool in tools] if tools else []
         logger.info(f"MCP Tool List: {tool_names}")
-        
+
     except Exception as e:
         logger.warning(f"Failed to initialize the MCP client: {e}")
+
+async def _initialize_rag_service():
+    """initialize the RAG service (Qdrant)"""
+    try:
+        await rag_service.initialize()
+        logger.info("RAG Service initialized successfully")
+    except Exception as e:
+        logger.warning(f"Failed to initialize the RAG service: {e}")
 
 # Initialize the FastAPI app
 app = FastAPI(
