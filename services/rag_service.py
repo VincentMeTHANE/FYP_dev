@@ -480,9 +480,6 @@ class RAGService:
         
         collection_name = collection_name or settings.QDRANT_COLLECTION
         
-        # 生成文档 ID
-        doc_id = str(uuid.uuid4())
-        
         # 根据文件类型处理
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
         
@@ -500,6 +497,7 @@ class RAGService:
             for doc in documents:
                 doc["metadata"].update(metadata)
         
+        # 使用文件名生成稳定的 doc_id，便于后续更新和去重
         doc_id = hashlib.md5(filename.encode()).hexdigest()[:16]
 
         # 提取文本内容进行向量化
@@ -518,12 +516,18 @@ class RAGService:
 
         # 向量化
         embeddings = await self.embedding_service.embed_texts(texts)
-        
-        # 构建向量点
+
+        # 构建向量点 - 使用 UUID 确保 point_id 唯一
         points = []
         for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
-            # Qdrant 要求 point_id 是 unsigned integer 或 UUID
-            point_id = idx  # 使用整数索引
+            # 使用 UUID 作为 point_id，确保全局唯一
+            point_id = str(uuid.uuid4())
+
+        # 构建向量点 - 使用 UUID 确保 point_id 唯一
+        points = []
+        for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
+            # 使用 UUID 作为 point_id，确保全局唯一，不会覆盖已有文档
+            point_id = str(uuid.uuid4())
             
             # 合并所有元数据
             point_metadata = {
