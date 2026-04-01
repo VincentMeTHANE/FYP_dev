@@ -6,6 +6,7 @@ import asyncio
 import logging
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from config import settings
@@ -68,6 +69,15 @@ app = FastAPI(
     description="",
     version="2.0.0",
     lifespan=lifespan
+)
+
+# Configure CORS for frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # set up the global exception handler
