@@ -208,3 +208,4 @@ __marimo__/
 
 # Config file
 config.py
+logs/

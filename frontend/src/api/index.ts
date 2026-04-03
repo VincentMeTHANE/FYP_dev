@@ -372,7 +372,26 @@ export async function executeSearch(request: SearchRequest): Promise<SearchRespo
 
 // ==================== 搜索总结相关接口 ====================
 
-// 生成搜索总结 - 流式
+// 生成搜索总结 - completion模式（非流式）
+export async function fetchSummaryCompletion(
+  reportId: string,
+  taskId: string,
+  searchId: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const response = await apiClient.post<ApiResponse<any>>('/summary/completion', {
+      report_id: reportId,
+      task_id: taskId,
+      search_id: searchId
+    });
+    return { success: true, data: response.data.data };
+  } catch (error: any) {
+    const errorMessage = error.response?.data?.message || error.message || '未知错误';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// 生成搜索总结 - 流式（保留原有功能供参考）
 export async function fetchSummaryStream(
   reportId: string,
   taskId: string,
