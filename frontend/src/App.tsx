@@ -134,7 +134,13 @@ const App: React.FC = () => {
           <Header style={{ background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', padding: '0 24px' }}>
             <Title level={4} style={{ margin: 0, color: '#1890ff' }}>深度研究报告生成系统</Title>
             <div style={{ flex: 1 }} />
-            {reportId && <Text type="secondary">报告ID: {reportId.substring(0, 8)}...</Text>}
+            {reportId && (
+              <div style={{ textAlign: 'right', lineHeight: 1.6 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>报告ID:</Text>
+                <br />
+                <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>{reportId}</Text>
+              </div>
+            )}
           </Header>
           <Content style={{ padding: 0, background: '#f0f2f5' }}>
             {reportId && currentStep > 0 && currentStep <= 6 && (

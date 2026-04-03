@@ -112,6 +112,18 @@ body {
   text-decoration: underline;
 }
 
+/* 图片样式 */
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+  margin: 16px auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 8px;
