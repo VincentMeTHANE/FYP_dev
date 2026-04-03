@@ -416,11 +416,17 @@ async def get_detail(
     }
 
     # 添加判断：如果search_summary不为空
-    if search_summary:
-        # 检查search_summary中是否有response字段
-        if "response" in search_summary:
-            # 将search_summary中的response值设置到response_data中
-            response_data["content"] = search_summary["response"]["choices"][0]["message"]["content"]
+    if search_summary and "response" in search_summary:
+        response_data_val = search_summary["response"]
+        # 安全访问嵌套字段
+        if isinstance(response_data_val, dict) and "choices" in response_data_val:
+            choices = response_data_val["choices"]
+            if isinstance(choices, list) and len(choices) > 0:
+                choice = choices[0]
+                if isinstance(choice, dict) and "message" in choice:
+                    message = choice["message"]
+                    if isinstance(message, dict) and "content" in message:
+                        response_data["content"] = message["content"]
 
     return Result.success(response_data)
     

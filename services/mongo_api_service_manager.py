@@ -663,6 +663,8 @@ class MongoAPIServiceManager:
                 records.append(record)
 
             logger.info(f"成功获取历史记录，报告ID: {task_id}, 记录数: {len(records)}")
+            if not records:
+                return {}  # 返回空字典而不是抛出 IndexError
             return records[0]
 
         except HTTPException:

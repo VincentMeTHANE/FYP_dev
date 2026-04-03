@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Card, Button, message, Space, Typography, Divider, Progress, Table, Tag } from 'antd';
-import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { Card, Button, message, Space, Typography, Divider, Progress, Table, Tag, Switch, Tooltip } from 'antd';
+import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { executeSearch, getTaskIds } from '@/api';
 
@@ -25,6 +25,7 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
   const [tasks, setTasks] = useState<SearchTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [allComplete, setAllComplete] = useState(false);
+  const [useRag, setUseRag] = useState(true);
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -58,7 +59,7 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
     const searchPromises = tasks.map(async (task, index) => {
       setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'processing' } : t));
       try {
-        await executeSearch({ task_id: task.task_id, max_results: 10, include_images: true, use_rag: true });
+        await executeSearch({ task_id: task.task_id, max_results: 10, include_images: true, use_rag: useRag });
         setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'completed' } : t));
       } catch {
         setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'failed' } : t));
@@ -68,7 +69,7 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
     setLoading(false);
     setAllComplete(true);
     message.success('所有搜索任务已完成');
-  }, [tasks]);
+  }, [tasks, useRag]);
 
   const handleRetryFailed = useCallback(async () => {
     const failedTasks = tasks.filter(t => t.status === 'failed');
@@ -81,7 +82,7 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
       if (tasks[i].status === 'failed') {
         setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'processing', error: undefined } : t));
         try {
-          await executeSearch({ task_id: tasks[i].task_id, max_results: 10, include_images: true, use_rag: true });
+          await executeSearch({ task_id: tasks[i].task_id, max_results: 10, include_images: true, use_rag: useRag });
           setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'completed' } : t));
         } catch {
           setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'failed' } : t));
@@ -94,7 +95,7 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
       setAllComplete(true);
       message.success('所有搜索任务已完成');
     }
-  }, [tasks]);
+  }, [tasks, useRag]);
 
   const columns: ColumnsType<SearchTask> = [
     { title: '序号', dataIndex: 'index', key: 'index', width: 60, render: (_, __, index) => index + 1 },
@@ -124,13 +125,23 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
         <Text type="secondary">并发执行所有搜索任务获取相关信息</Text>
         <Divider />
 
-        <Space style={{ marginBottom: '24px' }}>
+        <Space style={{ marginBottom: '24px' }} wrap>
           <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleSearch} loading={loading} disabled={tasks.length === 0} size="large">
             开始执行搜索 ({tasks.length} 个任务)
           </Button>
           {tasks.some(t => t.status === 'failed') && (
             <Button icon={<SyncOutlined />} onClick={handleRetryFailed} loading={loading}>重试失败任务</Button>
           )}
+          <Divider type="vertical" style={{ height: '100%' }} />
+          <Space>
+            <Switch checked={useRag} onChange={setUseRag} disabled={loading} />
+            <Text>
+              使用 RAG 增强搜索
+              <Tooltip title="开启后，搜索时会结合本地知识库进行增强检索，提高搜索结果的相关性">
+                <QuestionCircleOutlined style={{ marginLeft: 4 }} />
+              </Tooltip>
+            </Text>
+          </Space>
         </Space>
 
         {tasks.length > 0 && (
