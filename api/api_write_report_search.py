@@ -83,13 +83,25 @@ async def _store_search_results(
 
         # 处理图片，上传到OSS
         processed_images = []
+        logger.info(f"检查图片数据，tavily_response.images: {tavily_response.images}")
         if tavily_response.images:
-            logger.info(f"开始处理 {len(tavily_response.images)} 张图片")
-            processed_images = await image_service.validate_and_upload_images([
-                {"url": img.url, "description": img.description or ""}
-                for img in tavily_response.images
-            ])
+            logger.info(f"检测到 {len(tavily_response.images)} 张原始图片")
+            # 判断是字典列表还是对象列表
+            first_img = tavily_response.images[0] if tavily_response.images else None
+            if isinstance(first_img, dict):
+                # 字典列表格式：{"url": "...", "description": "..."}
+                logger.info(f"图片格式：字典格式，第一张图片: {first_img}")
+                processed_images = await image_service.validate_and_upload_images(tavily_response.images)
+            else:
+                # 对象格式，使用属性访问
+                logger.info(f"图片格式：对象格式")
+                processed_images = await image_service.validate_and_upload_images([
+                    {"url": img.url, "description": img.description or ""}
+                    for img in tavily_response.images
+                ])
             logger.info(f"图片处理完成，成功上传 {len(processed_images)} 张图片到OSS")
+        else:
+            logger.warning("tavily_response.images 为空或None，跳过图片处理")
 
         # 为每个搜索结果创建一条MongoDB记录
         for idx, result in enumerate(tavily_response.results):
@@ -134,7 +146,8 @@ async def _store_search_results_with_images(
     query: str,
     tavily_response,
     mongo_database,
-    processed_images: List[Dict] = None
+    processed_images: List[Dict] = None,
+    result_type: str = "online"
 ) -> int:
     """
     将Tavily搜索结果存储到MongoDB（支持预处理的图片）
@@ -147,6 +160,7 @@ async def _store_search_results_with_images(
         tavily_response: Tavily搜索响应
         mongo_database: MongoDB数据库实例
         processed_images: 预处理的图片列表
+        result_type: 结果类型 ("online" 或 "knowledge")
 
     Returns:
         int: 存储的记录数量
@@ -175,7 +189,7 @@ async def _store_search_results_with_images(
                 "task_id": task_id,
                 "report_id": report_id,
                 "plan_id": plan_id,
-                "type": "online",
+                "type": result_type,
                 "query": query,
                 "result_index": start_index + idx,
                 "title": result.get("title", ""),
@@ -187,8 +201,8 @@ async def _store_search_results_with_images(
                 "tavily_answer": tavily_response.answer,
                 "response_time": tavily_response.response_time,
                 "follow_up_questions": tavily_response.follow_up_questions,
-                "images": processed_images if processed_images else [],  # 使用预处理后的图片
-                "is_web": True,
+                "images": processed_images if processed_images else [],
+                "is_web": result_type == "online",
                 "status": "完成",
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
             }
@@ -576,6 +590,20 @@ async def enhanced_search(
                 message="任务中未包含查询语句"
             )
 
+        # ===== 执行知识库检索 (RAG) =====
+        knowledge_chunks = []
+        try:
+            logger.info(f"开始知识库检索，query: {query}")
+            knowledge_chunks = await rag_service.retrieve(
+                query=query,
+                top_k=5,
+                score_threshold=0.5
+            )
+            logger.info(f"知识库检索完成，获取到 {len(knowledge_chunks)} 条结果")
+        except Exception as e:
+            logger.warning(f"知识库检索失败: {str(e)}，将继续执行网络搜索")
+            knowledge_chunks = []
+
         # 执行增强搜索（返回结果和图片）
         enhanced_results, enhanced_images = await enhanced_search_service.enhanced_search(
             query=query,
@@ -588,14 +616,9 @@ async def enhanced_search(
             relevance_threshold=request.relevance_threshold
         )
 
-        # 处理图片上传到 OSS
-        processed_images = []
-        if request.include_images and enhanced_images:
-            logger.info(f"开始处理 {len(enhanced_images)} 张图片")
-            processed_images = await image_service.validate_and_upload_images(enhanced_images)
-            logger.info(f"图片处理完成，成功上传 {len(processed_images)} 张图片到OSS")
+        logger.info(f"增强搜索完成，results: {len(enhanced_results)}, images: {len(enhanced_images) if enhanced_images else 0}")
 
-        # 构造 Tavily 格式的响应
+        # 构造 Tavily 格式的响应（让 _store_search_results 处理图片）
         tavily_response = type('obj', (object,), {
             'results': [
                 {
@@ -607,14 +630,14 @@ async def enhanced_search(
                 }
                 for r in enhanced_results
             ],
-            'images': processed_images,
+            'images': enhanced_images,
             'answer': None,
             'follow_up_questions': [],
             'response_time': 0
         })()
 
-        # 存储结果到 MongoDB（使用修改后的 _store 函数，支持处理后的图片）
-        stored_count = await _store_search_results_with_images(
+        # 存储网络搜索结果到 MongoDB（使用 _store_search_results，自动处理图片）
+        stored_count = await _store_search_results(
             request.task_id,
             report_id,
             plan_id,
@@ -623,24 +646,37 @@ async def enhanced_search(
             mongo_db
         )
 
+        # 存储知识库结果到 MongoDB（type: "knowledge"）
+        if knowledge_chunks:
+            kb_stored_count = await _store_knowledge_results(
+                request.task_id,
+                report_id,
+                plan_id,
+                query,
+                knowledge_chunks,
+                mongo_db
+            )
+            logger.info(f"知识库结果已存储，{kb_stored_count} 条")
+
         # 更新任务状态
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchCompleted")
 
-        # 构造响应数据
+        # 构造响应数据 - 与 original 接口保持一致
         response_data = {
             "task_id": request.task_id,
             "query": query,
-            "sources": tavily_response.results,
-            "images": processed_images,
-            "web_count": len(tavily_response.results),
-            "enhanced": True,
-            "use_expansion": request.use_expansion,
-            "use_rerank": request.use_rerank,
-            "use_intent": request.use_intent,
-            "relevance_threshold": request.relevance_threshold
+            "response_time": tavily_response.response_time,
+            "images": tavily_response.images,
+            "sources": tavily_response.results or [],
+            "knowledge_count": len(knowledge_chunks) if knowledge_chunks else 0,
+            "web_count": len(tavily_response.results) if tavily_response.results else 0
         }
 
-        logger.info(f"增强搜索完成，task_id: {request.task_id}, 结果数: {stored_count}")
+        # 存储响应数据
+        await _store_response_data(request.task_id, response_data, mongo_db)
+
+        logger.info(f"增强搜索完成，task_id: {request.task_id}, "
+                   f"网络结果: {stored_count}, 知识库结果: {len(knowledge_chunks)}")
 
         return Result.success(response_data)
 
