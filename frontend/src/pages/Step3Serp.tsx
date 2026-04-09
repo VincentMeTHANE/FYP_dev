@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Card, Button, message, Spin, Space, Typography, Divider, Tag } from 'antd';
-import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import JsonViewer from '@/components/JsonViewer';
 import type { ChapterInfo, SerpQuery } from '@/types';
 import { fetchSerpStream, getTaskIds } from '@/api';
@@ -10,7 +10,7 @@ const { Title, Text } = Typography;
 interface Step3SerpProps {
   reportId: string;
   chapters: ChapterInfo[];
-  onNext: (reportId: string, allTasks: { task_id: string; query: string; researchGoal: string }[]) => void;
+  onNext: (reportId: string, allTasks: { task_id: string; query: string; researchGoal: string }[], executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => void;
   onBack?: () => void;
 }
 
@@ -20,6 +20,7 @@ interface ChapterSerpData {
   loading: boolean;
   complete: boolean;
   error?: string;
+  executionTime?: number;
 }
 
 export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext, onBack }) => {
@@ -31,8 +32,21 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
     return initial;
   });
   const [allComplete, setAllComplete] = useState(false);
+  const [totalExecutionTime, setTotalExecutionTime] = useState<number>(0);
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(1);
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+  };
 
   const handleGenerateSerp = useCallback(async (splitId: string) => {
+    const startTime = Date.now();
     setChapterData(prev => ({ ...prev, [splitId]: { ...prev[splitId], loading: true, error: undefined } }));
 
     try {
@@ -44,10 +58,14 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
           (chunk) => { fullContent = chunk; },
           () => {
             try {
+              const elapsed = (Date.now() - startTime) / 1000;
               const cleaned = fullContent.replace(/```json\n?/g, '').replace(/\n?```/g, '').trim();
               const parsed = JSON.parse(cleaned);
               const queries: SerpQuery[] = Array.isArray(parsed) ? parsed : [];
-              setChapterData(prev => ({ ...prev, [splitId]: { ...prev[splitId], queries, loading: false, complete: true } }));
+              setChapterData(prev => ({
+                ...prev,
+                [splitId]: { ...prev[splitId], queries, loading: false, complete: true, executionTime: elapsed }
+              }));
               resolve();
             } catch {
               reject(new Error('解析SERP数据失败'));
@@ -65,9 +83,11 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
   }, [reportId]);
 
   const handleGenerateAllSerp = useCallback(async () => {
+    const startTime = Date.now();
     for (const chapter of chapters) {
       await handleGenerateSerp(chapter.split_id);
     }
+    setTotalExecutionTime((Date.now() - startTime) / 1000);
     setAllComplete(true);
     message.success('所有章节的SERP已生成');
   }, [chapters, handleGenerateSerp]);
@@ -97,8 +117,8 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
       message.warning('没有找到任何搜索任务');
       return;
     }
-    onNext(reportId, allTasks);
-  }, [reportId, chapterData, onNext]);
+    onNext(reportId, allTasks, totalExecutionTime);
+  }, [reportId, chapterData, onNext, totalExecutionTime]);
 
   return (
     <div style={{ padding: '24px' }}>
@@ -112,6 +132,11 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
             loading={Object.values(chapterData).some(d => d.loading)} disabled={chapters.length === 0}>
             为所有章节生成SERP
           </Button>
+          {allComplete && totalExecutionTime > 0 && (
+            <Tag icon={<ClockCircleOutlined />} color="blue">
+              总耗时: {formatTime(totalExecutionTime)}
+            </Tag>
+          )}
         </Space>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -125,6 +150,7 @@ export const Step3Serp: React.FC<Step3SerpProps> = ({ reportId, chapters, onNext
                     生成此章节SERP
                   </Button>
                   {data.complete && !data.loading && <Tag color="success" icon={<CheckCircleOutlined />}>已完成</Tag>}
+                  {data.executionTime && <Tag icon={<ClockCircleOutlined />}>{formatTime(data.executionTime)}</Tag>}
                 </Space>
 
                 {data.loading && <div style={{ textAlign: 'center', padding: '20px' }}><Spin /><div style={{ marginTop: '8px' }}><Text type="secondary">正在生成查询列表...</Text></div></div>}

@@ -181,11 +181,11 @@ async def get_report_progress(report_id: str):
 async def get_step_result(report_id: str, step_name: str):
     """
     获取指定步骤的执行结果
-    
+
     Args:
         report_id: 报告ID
         step_name: 步骤名称
-        
+
     Returns:
         dict: 步骤结果
     """
@@ -203,13 +203,13 @@ async def get_step_result(report_id: str, step_name: str):
             "search": report.steps.search,
             "search_summary": report.steps.search_summary
         }
-        
+
         if step_name not in step_mapping:
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_INVALID_STEPS),
                            message=ErrorCode.get_message(ErrorCode.REPORT_INVALID_STEPS))
-        
+
         step = step_mapping[step_name]
-        
+
         data= {
             "report_id": report_id,
             "step_name": step_name,
@@ -222,12 +222,77 @@ async def get_step_result(report_id: str, step_name: str):
             "error_message": step.error_message
         }
         return Result.success(data)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"获取步骤结果失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取步骤结果失败: {str(e)}")
+
+
+@router.get("/token-stats/{report_id}", response_model=Result)
+async def get_token_stats(report_id: str):
+    """
+    获取报告的Token统计信息
+
+    Args:
+        report_id: 报告ID
+
+    Returns:
+        dict: Token统计信息
+    """
+    try:
+        from bson import ObjectId
+        from utils.database import mongo_db
+
+        # 从各个步骤记录集合中汇总token使用情况
+        collections_to_check = [
+            "report_ask_questions",
+            "report_plan",
+            "report_serp",
+            "report_search",
+            "report_search_summary"
+        ]
+
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+        step_stats = []
+
+        for collection_name in collections_to_check:
+            collection = mongo_db[collection_name]
+            records = list(collection.find({"report_id": report_id}))
+
+            for record in records:
+                prompt_tokens = record.get("prompt_tokens") or 0
+                completion_tokens = record.get("completion_tokens") or 0
+                tokens = record.get("total_tokens") or 0
+
+                total_prompt_tokens += prompt_tokens
+                total_completion_tokens += completion_tokens
+                total_tokens += tokens
+
+                if prompt_tokens > 0 or completion_tokens > 0 or tokens > 0:
+                    step_stats.append({
+                        "collection": collection_name,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": tokens,
+                        "execution_time": record.get("execution_time")
+                    })
+
+        data = {
+            "report_id": report_id,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens,
+            "step_stats": step_stats
+        }
+        return Result.success(data)
+
+    except Exception as e:
+        logger.error(f"获取Token统计失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取Token统计失败: {str(e)}")
 
 
 @router.post("/lock", response_model=Result)

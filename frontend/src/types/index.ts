@@ -103,6 +103,38 @@ export interface StepStatus {
   completed: boolean;
 }
 
+// 步骤统计信息
+export interface StepStats {
+  execution_time?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+// Token统计信息
+export interface TokenStats {
+  report_id: string;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  step_stats: Array<{
+    collection: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    execution_time?: number;
+  }>;
+}
+
+// 累计统计信息（用于前端展示）
+export interface CumulativeStats {
+  total_execution_time: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  step_times: Record<string, number>;
+}
+
 // 流式回调类型
 export type StreamCallback = (data: string, isComplete: boolean) => void;
 

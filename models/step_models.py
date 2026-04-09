@@ -18,6 +18,10 @@ class BaseStepRecord(BaseModel):
     response: Optional[Dict[str, Any]] = Field(None, description="执行结果")
     execution_time: Optional[float] = Field(None, description="执行时间(秒)")
     error_message: Optional[str] = Field(None, description="错误信息")
+    # Token统计字段
+    prompt_tokens: Optional[int] = Field(None, description="输入token数量")
+    completion_tokens: Optional[int] = Field(None, description="输出token数量")
+    total_tokens: Optional[int] = Field(None, description="总token数量")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
 

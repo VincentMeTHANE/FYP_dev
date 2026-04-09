@@ -9,8 +9,9 @@ import Step3Serp from '@/pages/Step3Serp';
 import Step4Search from '@/pages/Step4Search';
 import Step5Summary from '@/pages/Step5Summary';
 import Step6Final from '@/pages/Step6Final';
+import FinalStats from '@/components/FinalStats';
 import { createReport } from '@/api';
-import type { ChapterInfo } from '@/types';
+import type { ChapterInfo, CumulativeStats } from '@/types';
 
 const { Header, Content, Footer } = Layout;
 const { Title, Text } = Typography;
@@ -23,49 +24,94 @@ const App: React.FC = () => {
   const [splitIds, setSplitIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 累计统计状态
+  const [stepStats, setStepStats] = useState<Record<string, number>>({});
+  const [totalPromptTokens, setTotalPromptTokens] = useState(0);
+  const [totalCompletionTokens, setTotalCompletionTokens] = useState(0);
+  const [totalTokens, setTotalTokens] = useState(0);
+
+  // 记录步骤执行时间
+  const recordStepTime = useCallback((stepName: string, time: number) => {
+    setStepStats(prev => ({ ...prev, [stepName]: time }));
+  }, []);
+
+  // 记录Token使用量
+  const recordTokenUsage = useCallback((promptTokens: number, completionTokens: number, totalTokensVal: number) => {
+    setTotalPromptTokens(prev => prev + promptTokens);
+    setTotalCompletionTokens(prev => prev + completionTokens);
+    setTotalTokens(prev => prev + totalTokensVal);
+  }, []);
+
+  // 重置统计数据
+  const resetStats = useCallback(() => {
+    setStepStats({});
+    setTotalPromptTokens(0);
+    setTotalCompletionTokens(0);
+    setTotalTokens(0);
+  }, []);
+
+  // 计算总执行时间
+  const totalExecutionTime = Object.values(stepStats).reduce((sum, t) => sum + (t || 0), 0);
+
   const handleCreateReport = useCallback(async () => {
     setLoading(true);
     try {
       const newReportId = await createReport();
       setReportId(newReportId);
       setCurrentStep(1);
+      resetStats(); // 重置统计
       message.success('报告创建成功');
     } catch {
       message.error('创建报告失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [resetStats]);
 
-  const handleStep1Next = useCallback((newReportId: string, questions: string) => {
+  // Step1完成后记录统计
+  const handleStep1Next = useCallback((newReportId: string, questions: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => {
     setReportId(newReportId);
     const firstLine = questions.split('\n')[0] || '';
     const extractedTitle = firstLine.replace(/^\d+[\.、]\s*/, '').trim();
     setTitle(extractedTitle || '研究报告');
+    if (executionTime) recordStepTime('ask_questions', executionTime);
+    if (tokenUsage) recordTokenUsage(tokenUsage.prompt, tokenUsage.completion, tokenUsage.total);
     setCurrentStep(2);
-  }, []);
+  }, [recordStepTime, recordTokenUsage]);
 
-  const handleStep2Next = useCallback((newReportId: string, newChapters: ChapterInfo[]) => {
+  // Step2完成后记录统计
+  const handleStep2Next = useCallback((newReportId: string, newChapters: ChapterInfo[], executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => {
     setReportId(newReportId);
     setChapters(newChapters);
     setSplitIds(newChapters.map(c => c.split_id));
+    if (executionTime) recordStepTime('plan', executionTime);
+    if (tokenUsage) recordTokenUsage(tokenUsage.prompt, tokenUsage.completion, tokenUsage.total);
     setCurrentStep(3);
-  }, []);
+  }, [recordStepTime, recordTokenUsage]);
 
-  const handleStep3Next = useCallback((newReportId: string) => {
+  // Step3完成后记录统计
+  const handleStep3Next = useCallback((newReportId: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => {
     setReportId(newReportId);
+    if (executionTime) recordStepTime('serp', executionTime);
+    if (tokenUsage) recordTokenUsage(tokenUsage.prompt, tokenUsage.completion, tokenUsage.total);
     setCurrentStep(4);
-  }, []);
+  }, [recordStepTime, recordTokenUsage]);
 
-  const handleStep4Next = useCallback((newReportId: string) => {
+  // Step4完成后记录统计
+  const handleStep4Next = useCallback((newReportId: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => {
     setReportId(newReportId);
+    if (executionTime) recordStepTime('search', executionTime);
+    if (tokenUsage) recordTokenUsage(tokenUsage.prompt, tokenUsage.completion, tokenUsage.total);
     setCurrentStep(5);
-  }, []);
+  }, [recordStepTime, recordTokenUsage]);
 
-  const handleStep5Next = useCallback((newReportId: string) => {
+  // Step5完成后记录统计
+  const handleStep5Next = useCallback((newReportId: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => {
     setReportId(newReportId);
+    if (executionTime) recordStepTime('search_summary', executionTime);
+    if (tokenUsage) recordTokenUsage(tokenUsage.prompt, tokenUsage.completion, tokenUsage.total);
     setCurrentStep(6);
-  }, []);
+  }, [recordStepTime, recordTokenUsage]);
 
   const handleStepChange = useCallback((step: number) => {
     if (step < currentStep) {
@@ -109,22 +155,34 @@ const App: React.FC = () => {
       return renderStartPage();
     }
 
-    switch (currentStep) {
-      case 1:
-        return <Step1Questions reportId={reportId} onNext={handleStep1Next} />;
-      case 2:
-        return <Step2Plan reportId={reportId} title={title} onNext={handleStep2Next} onBack={() => setCurrentStep(1)} />;
-      case 3:
-        return <Step3Serp reportId={reportId} chapters={chapters} onNext={handleStep3Next} onBack={() => setCurrentStep(2)} />;
-      case 4:
-        return <Step4Search reportId={reportId} splitIds={splitIds} onNext={handleStep4Next} onBack={() => setCurrentStep(3)} />;
-      case 5:
-        return <Step5Summary reportId={reportId} splitIds={splitIds} onNext={handleStep5Next} onBack={() => setCurrentStep(4)} />;
-      case 6:
-        return <Step6Final reportId={reportId} title={title} splitIds={splitIds} onBack={() => setCurrentStep(5)} />;
-      default:
-        return renderStartPage();
-    }
+    const stepComponents: Record<number, React.ReactNode> = {
+      1: <Step1Questions reportId={reportId} onNext={handleStep1Next} />,
+      2: <Step2Plan reportId={reportId} title={title} onNext={handleStep2Next} onBack={() => setCurrentStep(1)} />,
+      3: <Step3Serp reportId={reportId} chapters={chapters} onNext={handleStep3Next} onBack={() => setCurrentStep(2)} />,
+      4: <Step4Search reportId={reportId} splitIds={splitIds} onNext={handleStep4Next} onBack={() => setCurrentStep(3)} />,
+      5: <Step5Summary reportId={reportId} splitIds={splitIds} onNext={handleStep5Next} onBack={() => setCurrentStep(4)} />,
+      6: <Step6Final
+          reportId={reportId}
+          title={title}
+          splitIds={splitIds}
+          onBack={() => setCurrentStep(5)}
+        />,
+    };
+
+    return (
+      <>
+        {stepComponents[currentStep]}
+        {currentStep === 6 && totalTokens > 0 && (
+          <FinalStats
+            totalExecutionTime={totalExecutionTime}
+            totalPromptTokens={totalPromptTokens}
+            totalCompletionTokens={totalCompletionTokens}
+            totalTokens={totalTokens}
+            stepTimes={stepStats}
+          />
+        )}
+      </>
+    );
   };
 
   return (

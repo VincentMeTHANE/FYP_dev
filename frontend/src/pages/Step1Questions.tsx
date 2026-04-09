@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { Card, Input, Button, message, Spin, Space, Typography, Divider, List } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, RightOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Input, Button, message, Spin, Space, Typography, Divider, List, Tag } from 'antd';
+import { PlayCircleOutlined, SaveOutlined, RightOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { fetchAskQuestionsStream, updateQuestions } from '@/api';
 
@@ -8,7 +8,7 @@ const { Title, Text } = Typography;
 
 interface Step1QuestionsProps {
   reportId: string;
-  onNext: (reportId: string, questions: string) => void;
+  onNext: (reportId: string, questions: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => void;
 }
 
 export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext }) => {
@@ -17,6 +17,7 @@ export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [editableQuestions, setEditableQuestions] = useState<string[]>([]);
+  const [executionTime, setExecutionTime] = useState<number | undefined>();
 
   const handleGenerateQuestions = useCallback(async () => {
     if (!topic.trim()) {
@@ -24,9 +25,11 @@ export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext
       return;
     }
 
+    const startTime = Date.now();
     setLoading(true);
     setQuestions('');
     setEditableQuestions([]);
+    setExecutionTime(undefined);
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -40,6 +43,8 @@ export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext
             setQuestions(chunk);
           },
           () => {
+            const elapsed = (Date.now() - startTime) / 1000;
+            setExecutionTime(elapsed);
             setLoading(false);
             const lines = fullContent.split('\n').filter(line => line.trim());
             const parsedQuestions: string[] = [];
@@ -106,8 +111,19 @@ export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext
     const questionsText = editableQuestions.length > 0
       ? editableQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')
       : questions;
-    onNext(reportId, questionsText);
-  }, [reportId, questions, editableQuestions, onNext]);
+    onNext(reportId, questionsText, executionTime);
+  }, [reportId, questions, editableQuestions, onNext, executionTime]);
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(1);
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+  };
 
   return (
     <div style={{ padding: '24px' }}>
@@ -148,6 +164,14 @@ export const Step1Questions: React.FC<Step1QuestionsProps> = ({ reportId, onNext
         {questions && !loading && (
           <>
             <Divider>生成的问题</Divider>
+
+            {executionTime && (
+              <div style={{ marginBottom: '16px' }}>
+                <Tag icon={<ClockCircleOutlined />} color="blue">
+                  完成耗时: {formatTime(executionTime)}
+                </Tag>
+              </div>
+            )}
 
             <div style={{ marginBottom: '24px' }}>
               <Space style={{ marginBottom: '16px' }}>

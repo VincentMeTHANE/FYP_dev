@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Button, message, Space, Typography, Divider, Tag, Progress } from 'antd';
-import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined, ExclamationCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { fetchSummaryCompletion, getTaskIds } from '@/api';
 
 const { Title, Text } = Typography;
@@ -11,12 +11,13 @@ interface SummaryTask {
   query: string;
   status: 'pending' | 'processing' | 'completed' | 'error';
   error?: string;
+  executionTime?: number;
 }
 
 interface Step5SummaryProps {
   reportId: string;
   splitIds: string[];
-  onNext: (reportId: string) => void;
+  onNext: (reportId: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => void;
   onBack?: () => void;
 }
 
@@ -24,6 +25,18 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
   const [tasks, setTasks] = useState<SummaryTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [allComplete, setAllComplete] = useState(false);
+  const [totalExecutionTime, setTotalExecutionTime] = useState<number>(0);
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(1);
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+  };
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -55,6 +68,7 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
   const handleGenerateSummaries = useCallback(async () => {
     if (tasks.length === 0) return;
 
+    const startTime = Date.now();
     setLoading(true);
     setAllComplete(false);
 
@@ -64,8 +78,10 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
     // 并发请求所有summary任务
     const results = await Promise.all(
       tasks.map(async (task) => {
+        const taskStartTime = Date.now();
         const result = await fetchSummaryCompletion(reportId, task.task_id, task.search_id);
-        return { taskId: task.task_id, result };
+        const elapsed = (Date.now() - taskStartTime) / 1000;
+        return { taskId: task.task_id, result, executionTime: elapsed };
       })
     );
 
@@ -73,11 +89,13 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
     setTasks(prev => prev.map(task => {
       const resultItem = results.find(r => r.taskId === task.task_id);
       if (resultItem?.result.success) {
-        return { ...task, status: 'completed' as const };
+        return { ...task, status: 'completed' as const, executionTime: resultItem.executionTime };
       } else {
-        return { ...task, status: 'error' as const, error: resultItem?.result.error || '未知错误' };
+        return { ...task, status: 'error' as const, error: resultItem?.result.error || '未知错误', executionTime: resultItem?.executionTime };
       }
     }));
+
+    setTotalExecutionTime((Date.now() - startTime) / 1000);
 
     // 检查是否有任何失败的任务
     const hasErrors = results.some(r => !r.result.success);
@@ -101,6 +119,10 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
   const processingCount = tasks.filter(t => t.status === 'processing').length;
   const progressPercent = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
 
+  const handleNext = useCallback(() => {
+    onNext(reportId, totalExecutionTime);
+  }, [reportId, onNext, totalExecutionTime]);
+
   return (
     <div style={{ padding: '24px' }}>
       <Card>
@@ -119,6 +141,11 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
           >
             生成所有总结 ({tasks.length} 个)
           </Button>
+          {allComplete && totalExecutionTime > 0 && (
+            <Tag icon={<ClockCircleOutlined />} color="blue">
+              总耗时: {formatTime(totalExecutionTime)}
+            </Tag>
+          )}
         </Space>
 
         {tasks.length > 0 && (
@@ -169,7 +196,7 @@ export const Step5Summary: React.FC<Step5SummaryProps> = ({ reportId, splitIds, 
             type="primary"
             size="large"
             icon={<RightOutlined />}
-            onClick={() => onNext(reportId)}
+            onClick={handleNext}
             style={{ marginLeft: 'auto' }}
             disabled={!allComplete}
           >

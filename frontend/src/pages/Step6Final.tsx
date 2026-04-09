@@ -1,13 +1,15 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Button, message, Spin, Space, Typography, Divider, Collapse, Tag, Tabs, Modal, Input, Alert } from 'antd';
-import { PlayCircleOutlined, DownloadOutlined, CheckCircleOutlined, SyncOutlined, FilePdfOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, DownloadOutlined, CheckCircleOutlined, SyncOutlined, FilePdfOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
+import FinalStats from '@/components/FinalStats';
 import {
   getIntroduction,
   fetchFinalReportStream,
   fetchSummaryReportStream,
   getDownloadPdfUrl,
   getTaskIds,
+  getTokenStats,
 } from '@/api';
 import type { ChapterInfo } from '@/types';
 
@@ -21,6 +23,7 @@ interface FinalReportTask {
   content: string;
   status: 'pending' | 'processing' | 'completed' | 'error';
   error?: string;
+  executionTime?: number;
 }
 
 interface Step6FinalProps {
@@ -28,35 +31,83 @@ interface Step6FinalProps {
   title: string;
   splitIds: string[];
   onBack?: () => void;
+  // 从App.tsx传入的累计统计
+  totalExecutionTime?: number;
+  totalPromptTokens?: number;
+  totalCompletionTokens?: number;
+  totalTokens?: number;
+  stepTimes?: Record<string, number>;
 }
 
-export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitIds, onBack }) => {
+export const Step6Final: React.FC<Step6FinalProps> = ({
+  reportId,
+  title,
+  splitIds,
+  onBack,
+  totalExecutionTime = 0,
+  totalPromptTokens = 0,
+  totalCompletionTokens = 0,
+  totalTokens = 0,
+  stepTimes = {}
+}) => {
   const [introduction, setIntroduction] = useState<string>('');
   const [introductionLoading, setIntroductionLoading] = useState(false);
   const [introductionComplete, setIntroductionComplete] = useState(false);
+  const [introductionTime, setIntroductionTime] = useState<number>(0);
 
   const [chapters, setChapters] = useState<ChapterInfo[]>([]);
   const [chapterContents, setChapterContents] = useState<Record<string, FinalReportTask>>({});
   const [chaptersLoading, setChaptersLoading] = useState(false);
   const [allChaptersComplete, setAllChaptersComplete] = useState(false);
+  const [totalChaptersTime, setTotalChaptersTime] = useState<number>(0);
 
   const [summary, setSummary] = useState<string>('');
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryComplete, setSummaryComplete] = useState(false);
+  const [summaryTime, setSummaryTime] = useState<number>(0);
 
   const [requirement, setRequirement] = useState<string>('');
   const [showRequirementModal, setShowRequirementModal] = useState(false);
   const [generating, setGenerating] = useState(false);
 
+  // Token统计
+  const [tokenStats, setTokenStats] = useState<any>(null);
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(0);
+      return `${minutes}分${remainingSeconds}秒`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${hours}小时${minutes}分`;
+    }
+  };
+
+  // 计算总耗时
+  const overallExecutionTime = totalExecutionTime + introductionTime + totalChaptersTime + summaryTime;
+
+  // 加载Token统计
+  const loadTokenStats = useCallback(async () => {
+    try {
+      const stats = await getTokenStats(reportId);
+      setTokenStats(stats);
+    } catch (error) {
+      console.error('Failed to load token stats:', error);
+    }
+  }, [reportId]);
+
   useEffect(() => {
     const loadChapters = async () => {
       const initialContents: Record<string, FinalReportTask> = {};
-      // 直接使用传入的 splitIds 获取章节信息，不再调用 splitPlan（避免删除 serp_task 数据）
       for (const splitId of splitIds) {
         try {
           const tasks = await getTaskIds(splitId);
           if (tasks.length > 0) {
-            // 使用第一个任务的 query 作为章节标题
             initialContents[splitId] = {
               split_id: splitId,
               sectionTitle: tasks[0].researchGoal || `章节 ${Object.keys(initialContents).length + 1}`,
@@ -68,7 +119,6 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
           console.error('Error loading tasks for splitId:', splitId, error);
         }
       }
-      // 如果通过 getTaskIds 没有获取到章节信息，使用序号作为章节标题
       if (Object.keys(initialContents).length === 0) {
         splitIds.forEach((splitId, index) => {
           initialContents[splitId] = {
@@ -80,7 +130,6 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
         });
       }
       setChapterContents(initialContents);
-      // 同时设置 chapters 状态
       setChapters(splitIds.map((splitId, index) => ({
         split_id: splitId,
         sectionTitle: initialContents[splitId]?.sectionTitle || `章节 ${index + 1}`
@@ -88,15 +137,18 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
     };
     if (splitIds.length > 0) {
       loadChapters();
+      loadTokenStats();
     }
-  }, [splitIds]);
+  }, [splitIds, loadTokenStats]);
 
   const handleGenerateIntroduction = useCallback(async () => {
+    const startTime = Date.now();
     setIntroductionLoading(true);
     try {
       const intro = await getIntroduction(reportId);
       setIntroduction(intro);
       setIntroductionComplete(true);
+      setIntroductionTime((Date.now() - startTime) / 1000);
       message.success('引言生成完成');
     } catch {
       message.error('生成引言失败');
@@ -106,6 +158,7 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
   }, [reportId]);
 
   const handleGenerateChapter = useCallback(async (splitId: string) => {
+    const startTime = Date.now();
     setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], status: 'processing', error: undefined } }));
     try {
       await new Promise<void>((resolve, reject) => {
@@ -117,11 +170,13 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
             setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], content: chunk } }));
           },
           () => {
-            setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], status: 'completed', content: fullContent } }));
+            const elapsed = (Date.now() - startTime) / 1000;
+            setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], status: 'completed', content: fullContent, executionTime: elapsed } }));
             resolve();
           },
           (error) => {
-            setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], status: 'error', error: error.message } }));
+            const elapsed = (Date.now() - startTime) / 1000;
+            setChapterContents(prev => ({ ...prev, [splitId]: { ...prev[splitId], status: 'error', error: error.message, executionTime: elapsed } }));
             reject(error);
           }
         );
@@ -130,18 +185,22 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
   }, [reportId, requirement]);
 
   const handleGenerateAllChapters = useCallback(async () => {
+    const startTime = Date.now();
     setChaptersLoading(true);
     setGenerating(true);
     for (const chapter of chapters) {
       await handleGenerateChapter(chapter.split_id);
     }
+    setTotalChaptersTime((Date.now() - startTime) / 1000);
     setChaptersLoading(false);
     setGenerating(false);
     setAllChaptersComplete(true);
+    loadTokenStats(); // 重新加载token统计
     message.success('所有章节生成完成');
-  }, [chapters, handleGenerateChapter]);
+  }, [chapters, handleGenerateChapter, loadTokenStats]);
 
   const handleGenerateSummary = useCallback(async () => {
+    const startTime = Date.now();
     setSummaryLoading(true);
     try {
       await new Promise<void>((resolve, reject) => {
@@ -149,7 +208,11 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
         fetchSummaryReportStream(
           reportId,
           (chunk) => { fullContent = chunk; setSummary(chunk); },
-          () => { setSummaryComplete(true); resolve(); },
+          () => {
+            setSummaryComplete(true);
+            setSummaryTime((Date.now() - startTime) / 1000);
+            resolve();
+          },
           (error) => { message.error('生成总结失败: ' + error.message); reject(error); }
         );
       });
@@ -185,6 +248,9 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
                     {introductionComplete ? '重新生成引言' : '生成引言'}
                   </Button>
                   {introductionLoading && <Spin />}
+                  {introductionComplete && introductionTime > 0 && (
+                    <Tag icon={<ClockCircleOutlined />}>{formatTime(introductionTime)}</Tag>
+                  )}
                 </Space>
                 {introductionComplete ? <MarkdownRenderer content={introduction} scrollToBottom={true} /> : <Text type="secondary">点击上方按钮生成引言</Text>}
               </Card>
@@ -199,6 +265,9 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
                   </Button>
                   {generating && <Spin />}
                   <Text type="secondary">进度：{completedChapters} / {chapters.length} ({progressPercent}%)</Text>
+                  {allChaptersComplete && totalChaptersTime > 0 && (
+                    <Tag icon={<ClockCircleOutlined />}>{formatTime(totalChaptersTime)}</Tag>
+                  )}
                 </Space>
                 <Collapse>
                   {chapters.map((chapter, index) => {
@@ -209,6 +278,7 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
                         {chapterData.status === 'processing' && <Tag icon={<SyncOutlined spin />} color="processing">生成中</Tag>}
                         {chapterData.status === 'completed' && <Tag icon={<CheckCircleOutlined />} color="success">已完成</Tag>}
                         {chapterData.status === 'error' && <Tag color="error">失败</Tag>}
+                        {chapterData.executionTime && <Tag icon={<ClockCircleOutlined />}>{formatTime(chapterData.executionTime)}</Tag>}
                       </Space>}>
                         {chapterData.status === 'pending' && <Button size="small" onClick={() => handleGenerateChapter(chapter.split_id)}>生成此章节</Button>}
                         {(chapterData.status === 'processing' || chapterData.status === 'completed') && chapterData.content && <MarkdownRenderer content={chapterData.content} scrollToBottom={true} />}
@@ -228,6 +298,9 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
                     {summaryComplete ? '重新生成总结' : '生成总结'}
                   </Button>
                   {summaryLoading && <Spin />}
+                  {summaryComplete && summaryTime > 0 && (
+                    <Tag icon={<ClockCircleOutlined />}>{formatTime(summaryTime)}</Tag>
+                  )}
                 </Space>
                 {summaryComplete ? <MarkdownRenderer content={summary} scrollToBottom={true} /> : <Text type="secondary">点击上方按钮生成总结</Text>}
               </Card>
@@ -257,6 +330,16 @@ export const Step6Final: React.FC<Step6FinalProps> = ({ reportId, title, splitId
           {onBack && <Button onClick={onBack}>返回上一步</Button>}
         </div>
       </Card>
+
+      {/* 最终统计信息 */}
+      <FinalStats
+        totalExecutionTime={overallExecutionTime}
+        totalPromptTokens={tokenStats?.total_prompt_tokens || totalPromptTokens}
+        totalCompletionTokens={tokenStats?.total_completion_tokens || totalCompletionTokens}
+        totalTokens={tokenStats?.total_tokens || totalTokens}
+        stepTimes={stepTimes}
+        tokenStats={tokenStats?.step_stats}
+      />
 
       <Modal title="设置书写要求" open={showRequirementModal}
         onOk={() => { setShowRequirementModal(false); handleGenerateAllChapters(); }}

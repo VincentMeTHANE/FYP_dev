@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Card, Button, message, Spin, Space, Typography, Divider, Input, List } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, RightOutlined, CheckOutlined } from '@ant-design/icons';
+import { Card, Button, message, Spin, Space, Typography, Divider, Input, List, Tag } from 'antd';
+import { PlayCircleOutlined, SaveOutlined, RightOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import StreamDisplay from '@/components/StreamDisplay';
 import {
@@ -16,7 +16,7 @@ const { Title, Text } = Typography;
 interface Step2PlanProps {
   reportId: string;
   title: string;
-  onNext: (reportId: string, chapters: ChapterInfo[]) => void;
+  onNext: (reportId: string, chapters: ChapterInfo[], executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => void;
   onBack?: () => void;
 }
 
@@ -33,6 +33,18 @@ export const Step2Plan: React.FC<Step2PlanProps> = ({
   const [chapters, setChapters] = useState<ChapterInfo[]>([]);
   const [editablePlan, setEditablePlan] = useState<string>('');
   const [isEditMode, setIsEditMode] = useState(false);
+  const [executionTime, setExecutionTime] = useState<number | undefined>();
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(1);
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+  };
 
   const handleSplit = useCallback(async () => {
     setSplitLoading(true);
@@ -64,9 +76,11 @@ export const Step2Plan: React.FC<Step2PlanProps> = ({
   }, [reportId]);
 
   const handleGeneratePlan = useCallback(async () => {
+    const startTime = Date.now();
     setLoading(true);
     setPlan('');
     setChapters([]);
+    setExecutionTime(undefined);
 
     try {
       await new Promise<void>((resolve, reject) => {
@@ -79,6 +93,8 @@ export const Step2Plan: React.FC<Step2PlanProps> = ({
             }
           },
           () => {
+            const elapsed = (Date.now() - startTime) / 1000;
+            setExecutionTime(elapsed);
             setLoading(false);
             message.success('大纲生成完成');
             resolve();
@@ -120,8 +136,8 @@ export const Step2Plan: React.FC<Step2PlanProps> = ({
       message.warning('请先生成并拆分大纲');
       return;
     }
-    onNext(reportId, chapters);
-  }, [reportId, chapters, onNext]);
+    onNext(reportId, chapters, executionTime);
+  }, [reportId, chapters, onNext, executionTime]);
 
   return (
     <div style={{ padding: '24px' }}>
@@ -168,6 +184,14 @@ export const Step2Plan: React.FC<Step2PlanProps> = ({
 
         {plan && !loading && (
           <>
+            {executionTime && (
+              <div style={{ marginBottom: '16px' }}>
+                <Tag icon={<ClockCircleOutlined />} color="blue">
+                  生成耗时: {formatTime(executionTime)}
+                </Tag>
+              </div>
+            )}
+
             <StreamDisplay title="报告大纲" content={plan} loading={loading} onSave={handleSavePlan} saveLoading={saveLoading}>
               {isEditMode ? (
                 <Input.TextArea

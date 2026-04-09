@@ -8,7 +8,8 @@ import type {
   SearchRequest,
   SearchResponse,
   FinalReportDetail,
-  StepProgress
+  StepProgress,
+  TokenStats
 } from '@/types';
 
 // 使用相对路径，通过 vite.config.ts 中的代理转发到后端
@@ -45,6 +46,12 @@ export async function getReportProgress(reportId: string): Promise<StepProgress>
     steps: StepProgress;
   }>>(`/report/progress/${reportId}`);
   return response.data.data.steps;
+}
+
+// 获取Token统计
+export async function getTokenStats(reportId: string): Promise<TokenStats> {
+  const response = await apiClient.get<ApiResponse<TokenStats>>(`/report/token-stats/${reportId}`);
+  return response.data.data;
 }
 
 // ==================== 询问问题相关接口 ====================

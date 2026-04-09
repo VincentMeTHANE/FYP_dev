@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Button, message, Space, Typography, Divider, Progress, Table, Tag, Switch, Tooltip } from 'antd';
-import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, RightOutlined, CheckCircleOutlined, SyncOutlined, QuestionCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { executeSearch, getTaskIds } from '@/api';
 
@@ -12,12 +12,13 @@ interface SearchTask {
   researchGoal: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   error?: string;
+  executionTime?: number;
 }
 
 interface Step4SearchProps {
   reportId: string;
   splitIds: string[];
-  onNext: (reportId: string) => void;
+  onNext: (reportId: string, executionTime?: number, tokenUsage?: { prompt: number; completion: number; total: number }) => void;
   onBack?: () => void;
 }
 
@@ -26,6 +27,18 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
   const [loading, setLoading] = useState(false);
   const [allComplete, setAllComplete] = useState(false);
   const [useRag, setUseRag] = useState(true);
+  const [totalExecutionTime, setTotalExecutionTime] = useState<number>(0);
+
+  // 格式化时间
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds.toFixed(1)}秒`;
+    } else {
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = (seconds % 60).toFixed(1);
+      return `${minutes}分${remainingSeconds}秒`;
+    }
+  };
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -55,17 +68,22 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
   }, [splitIds]);
 
   const handleSearch = useCallback(async () => {
+    const startTime = Date.now();
     setLoading(true);
     const searchPromises = tasks.map(async (task, index) => {
+      const taskStartTime = Date.now();
       setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'processing' } : t));
       try {
         await executeSearch({ task_id: task.task_id, max_results: 10, include_images: true, use_rag: useRag });
-        setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'completed' } : t));
+        const elapsed = (Date.now() - taskStartTime) / 1000;
+        setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'completed', executionTime: elapsed } : t));
       } catch {
-        setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'failed' } : t));
+        const elapsed = (Date.now() - taskStartTime) / 1000;
+        setTasks(prev => prev.map((t, i) => i === index ? { ...t, status: 'failed', executionTime: elapsed } : t));
       }
     });
     await Promise.all(searchPromises);
+    setTotalExecutionTime((Date.now() - startTime) / 1000);
     setLoading(false);
     setAllComplete(true);
     message.success('所有搜索任务已完成');
@@ -80,12 +98,15 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
     setLoading(true);
     for (let i = 0; i < tasks.length; i++) {
       if (tasks[i].status === 'failed') {
+        const taskStartTime = Date.now();
         setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'processing', error: undefined } : t));
         try {
           await executeSearch({ task_id: tasks[i].task_id, max_results: 10, include_images: true, use_rag: useRag });
-          setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'completed' } : t));
+          const elapsed = (Date.now() - taskStartTime) / 1000;
+          setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'completed', executionTime: elapsed } : t));
         } catch {
-          setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'failed' } : t));
+          const elapsed = (Date.now() - taskStartTime) / 1000;
+          setTasks(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'failed', executionTime: elapsed } : t));
         }
       }
     }
@@ -96,6 +117,10 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
       message.success('所有搜索任务已完成');
     }
   }, [tasks, useRag]);
+
+  const handleNext = useCallback(() => {
+    onNext(reportId, totalExecutionTime);
+  }, [reportId, onNext, totalExecutionTime]);
 
   const columns: ColumnsType<SearchTask> = [
     { title: '序号', dataIndex: 'index', key: 'index', width: 60, render: (_, __, index) => index + 1 },
@@ -131,6 +156,11 @@ export const Step4Search: React.FC<Step4SearchProps> = ({ reportId, splitIds, on
           </Button>
           {tasks.some(t => t.status === 'failed') && (
             <Button icon={<SyncOutlined />} onClick={handleRetryFailed} loading={loading}>重试失败任务</Button>
+          )}
+          {allComplete && totalExecutionTime > 0 && (
+            <Tag icon={<ClockCircleOutlined />} color="blue">
+              总耗时: {formatTime(totalExecutionTime)}
+            </Tag>
           )}
           <Divider type="vertical" style={{ height: '100%' }} />
           <Space>
