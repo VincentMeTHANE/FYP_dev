@@ -1,11 +1,11 @@
-// API响应基础类型
+// API response base types
 export interface ApiResponse<T = unknown> {
   code: number;
   message: string;
   data: T;
 }
 
-// 报告相关类型
+// Report-related types
 export interface ReportCreateResponse {
   report_id: string;
 }
@@ -33,7 +33,7 @@ export interface PlanSplitResponse {
   execution_time: number;
 }
 
-// SERP相关类型
+// SERP-related types
 export interface SerpQuery {
   query: string;
   researchGoal: string;
@@ -47,7 +47,7 @@ export interface SerpTask {
   status?: 'pending' | 'processing' | 'completed' | 'failed';
 }
 
-// 搜索相关类型
+// Search-related types
 export interface SearchRequest {
   task_id: string;
   max_results?: number;
@@ -70,7 +70,7 @@ export interface SearchResponse {
   web_count: number;
 }
 
-// 最终报告相关类型
+// Final report types
 export interface FinalReportRequest {
   report_id: string;
   split_id: string;
@@ -89,7 +89,7 @@ export interface FinalReportDetail {
   report_summary: string;
 }
 
-// 步骤进度类型
+// Step progress types
 export interface StepProgress {
   ask_questions: StepStatus;
   plan: StepStatus;
@@ -103,7 +103,7 @@ export interface StepStatus {
   completed: boolean;
 }
 
-// 步骤统计信息
+// Step statistics types
 export interface StepStats {
   execution_time?: number;
   prompt_tokens?: number;
@@ -111,7 +111,7 @@ export interface StepStats {
   total_tokens?: number;
 }
 
-// Token统计信息
+// Token statistics types
 export interface TokenStats {
   report_id: string;
   total_prompt_tokens: number;
@@ -126,7 +126,7 @@ export interface TokenStats {
   }>;
 }
 
-// 累计统计信息（用于前端展示）
+// Cumulative statistics (for frontend display)
 export interface CumulativeStats {
   total_execution_time: number;
   total_prompt_tokens: number;
@@ -135,10 +135,10 @@ export interface CumulativeStats {
   step_times: Record<string, number>;
 }
 
-// 流式回调类型
+// Streaming callback types
 export type StreamCallback = (data: string, isComplete: boolean) => void;
 
-// 页面跳转参数
+// Page navigation parameters
 export interface ReportFlowParams {
   report_id: string;
   title: string;

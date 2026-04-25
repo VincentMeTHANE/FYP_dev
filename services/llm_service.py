@@ -1,5 +1,5 @@
 """
-LLM service, use LangChain & MCP
+LLM service using LangChain and MCP
 """
 
 import asyncio
@@ -16,86 +16,83 @@ from services.mcp_client_service import mcp_client_service
 
 logger = logging.getLogger(__name__)
 
-# System Prompt
+
 def system_prompt():
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return f"""
-    您是一位专业研究人员。今天是 {now}。在回应时请遵循以下指示：
-    - 您可能会被要求研究超出您知识截止日期的主题，当收到新闻信息时，请假设用户提供的内容是正确的。
-    - 用户是一位经验丰富的分析师，无需简化内容，应尽可能详细并确保回应准确无误。
-    - 内容需高度有条理。
-    - 提出我未曾想到的解决方案。
-    - 积极主动并预判我的需求。
-    - 将我视为所有领域的专家。
-    - 错误会削弱我的信任，因此请保证内容准确且全面。
-    - 提供详细的解释，我能够接受大量细节信息。
-    - 重视有说服力的论证而非权威观点，信息来源无关紧要。
-    - 不仅要考虑传统观点，还需纳入新技术和反向思维。
-    - 您可以进行高度的推测或预测，但请为此负责。 
-    - 请使用简体中文回答问题。
+    You are a professional researcher. Today is {now}. Please follow these guidelines when responding:
+    - You may be asked to research topics beyond your knowledge cutoff date; when receiving news information, assume the user's content is correct.
+    - The user is an experienced analyst; do not simplify content, be as detailed as possible and ensure accuracy.
+    - Content must be highly organized.
+    - Propose solutions I have not considered.
+    - Be proactive and anticipate my needs.
+    - Treat me as an expert in all fields.
+    - Errors weaken my trust, so ensure content is accurate and comprehensive.
+    - Provide detailed explanations; I can accept a large amount of detail.
+    - Value persuasive arguments over authority; the source of information is irrelevant.
+    - Consider not only traditional views but also new technologies and reverse thinking.
+    - You may engage in high levels of speculation or prediction, but take responsibility for them.
+    - Please respond in Simplified Chinese.
     - /no_think
     """
 
+
 def response_language_prompt():
-    return "**使用与用户语言相同的语言进行响应**"
+    return "**Respond in the same language as the user**"
+
 
 class LLMService:
-    """LLM service - use LangChain + MCP"""
-    
+    """LLM service using LangChain and MCP"""
+
     def __init__(self):
         self.base_url = settings.LLM_BASE_URL
         self.api_key = settings.LLM_API_KEY
         self.default_model = settings.LLM_MODEL
-        # 缓存不同模型的LangChain实例和智能体
         self._langchain_cache = {}
         self._react_agent_cache = {}
         self._mcp_initialized = False
 
     async def _get_langchain_llm(self, model: str = None):
-        """获取指定模型的LangChain LLM实例"""
+        """Get LangChain LLM instance for specified model"""
         model = model or self.default_model
-        
+
         if model not in self._langchain_cache:
             from langchain_openai import ChatOpenAI
 
             llm_entity = settings.LLM_ENTITY[model]
 
-            # 创建新的LangChain LLM实例
             self._langchain_cache[model] = ChatOpenAI(
                 openai_api_key=llm_entity["api_key"],
                 openai_api_base=f"{llm_entity['url']}/v1",
                 temperature=0.1
             )
-            logger.info(f"创建模型 {model} 的LangChain实例")
-        
+            logger.info(f"Created LangChain instance for model {model}")
+
         return self._langchain_cache[model]
 
     async def _get_react_agent(self, model: str = None):
-        """获取指定模型的ReAct智能体"""
+        """Get ReAct agent for specified model"""
         model = model or self.default_model
-        
+
         if model not in self._react_agent_cache:
-            # 确保MCP客户端服务已初始化
             if not self._mcp_initialized:
                 await mcp_client_service.initialize()
                 self._mcp_initialized = True
-            
-            # 获取LangChain LLM实例
+
             langchain_llm = await self._get_langchain_llm(model)
-            
-            # 创建ReAct智能体
+
             react_agent = await mcp_client_service.create_react_agent(langchain_llm)
-            
+
             if not react_agent:
-                raise Exception(f"无法为模型 {model} 创建ReAct智能体，MCP功能不可用")
-            
+                raise Exception(f"Failed to create ReAct agent for model {model}, MCP functionality unavailable")
+
             self._react_agent_cache[model] = react_agent
-            logger.info(f"创建模型 {model} 的ReAct智能体")
-        
+            logger.info(f"Created ReAct agent for model {model}")
+
         return self._react_agent_cache[model]
 
     async def completion(self, message: str, use_mcp: bool = False, model: str = None):
-        """非流式聊天完成"""
+        """Non-streaming chat completion"""
         request = LLMRequest(
             use_mcp=use_mcp,
             model=model or self.default_model,
@@ -116,13 +113,9 @@ class LLMService:
         )
         result = await self.chat_completion(request)
         return result
-    # 根据参数，让大模型判断是否符合规则，
+
     async def check_rule(self, message: str, model: str = None):
-        """根据参数，让大模型判断是否符合规则"""
-        # llm_entity = settings.LLM_ENTITY[model]
-        # model = model or settings.LLM_CHECK_ROLE_MODEL
-        # model = model or self.default_model
-        # model=llm_entity["name"] or self.default_model
+        """Check if content conforms to rules using LLM"""
         request = LLMRequest(
             use_mcp=False,
             model=model,
@@ -138,16 +131,10 @@ class LLMService:
             ]
         )
         result = await self.chat_completion(request)
-
-        # {'id': 'chatcmpl-20250917204858788787805isey5Euk', 'model': 'gemini-2.5-pro', 'object': 'chat.completion', 'created': 1758113353, 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': '否'}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 2817, 'completion_tokens': 1250, 'total_tokens': 4067, 'prompt_tokens_details': {'cached_tokens': 0, 'text_tokens': 2817, 'audio_tokens': 0, 'image_tokens': 0}, 'completion_tokens_details': {'text_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 1249}, 'input_tokens': 0, 'output_tokens': 0, 'input_tokens_details': None}}
         return result["choices"][0]["message"]["content"]
 
     async def stream(self, message: str, use_mcp: bool = False, model: str = None):
-
-        # llm_entity = settings.LLM_ENTITY[model]
-        # logger.info(f"调用LLM服务，使用模型: {llm_entity['name']}")
-
-        """流式聊天 - 返回异步生成器"""
+        """Streaming chat - returns async generator"""
         request = LLMRequest(
             use_mcp=use_mcp,
             model=model or self.default_model,
@@ -166,54 +153,46 @@ class LLMService:
                 }
             ]
         )
-        # 直接返回异步生成器，而不是StreamingResponse
         async for chunk in self.chat_stream(request):
             yield chunk
     
     async def chat_completion(self, request: LLMRequest) -> Dict[str, Any]:
-        """聊天完成接口"""
+        """Chat completion interface"""
         model = request.model or self.default_model
-        logger.info(f"聊天完成请求: use_mcp={request.use_mcp}, model={model}")
-        
+        logger.info(f"Chat completion request: use_mcp={request.use_mcp}, model={model}")
+
         if request.use_mcp:
-            # 如果启用MCP，必须使用LangChain方式，失败则报错
-            logger.info("使用LangChain + MCP路径")
+            logger.info("Using LangChain + MCP path")
             return await self._chat_with_langchain(request)
         else:
-            # 不使用MCP的普通聊天
-            logger.info("使用普通聊天路径")
+            logger.info("Using regular chat path")
             return await self._chat_without_mcp(request)
 
     async def _chat_with_langchain(self, request: LLMRequest) -> Dict[str, Any]:
-        """使用LangChain ReAct智能体的聊天完成"""
+        """Chat completion using LangChain ReAct agent"""
         try:
             model = request.model or self.default_model
-            
-            # 获取指定模型的ReAct智能体
+
             react_agent = await self._get_react_agent(model)
-            
-            # 提取用户消息
+
             user_message = ""
             for msg in request.messages:
                 if msg.get("role") == "user":
                     user_message = msg.get("content", "")
                     break
-            
+
             if not user_message:
-                raise ValueError("未找到用户消息")
-            
-            # 使用ReAct智能体处理
+                raise ValueError("User message not found")
+
             from langchain.schema import HumanMessage
-            
+
             result = await react_agent.ainvoke({
                 "messages": [HumanMessage(content=user_message)]
             })
-            
-            # 提取响应和工具调用信息
+
             final_message = result["messages"][-1]
             tool_calls = []
-            
-            # 提取工具调用信息
+
             for msg in result["messages"]:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for call in msg.tool_calls:
@@ -222,8 +201,7 @@ class LLMService:
                             "parameters": call.get('args', {}),
                             "result": "completed"
                         })
-            
-            # 构造兼容的响应格式
+
             response = {
                 "choices": [{
                     "message": {
@@ -240,17 +218,16 @@ class LLMService:
                 },
                 "model": model
             }
-            
-            logger.info(f"LangChain处理完成，调用了 {len(tool_calls)} 个工具")
+
+            logger.info(f"LangChain processing completed, called {len(tool_calls)} tools")
             return response
-            
+
         except Exception as e:
-            logger.error(f"LangChain处理失败: {e}")
+            logger.error(f"LangChain processing failed: {e}")
             raise
 
     async def _chat_without_mcp(self, request: LLMRequest) -> Dict[str, Any]:
-        """不使用MCP的基础聊天"""
-        # 添加系统提示词
+        """Basic chat without MCP"""
         if not any(msg.get("role") == "system" for msg in request.messages):
             request.messages.insert(0, {
                 "role": "system",
@@ -262,18 +239,9 @@ class LLMService:
             "model": llm_entity["name"],
             "messages": request.messages,
             "temperature": request.temperature,
-            # "max_tokens": request.max_tokens,
             "stream": False
         }
-        
-        # 调试日志
-        # logger.info(f"LLM API 请求详情:")
-        # logger.info(f"  URL: {self.base_url}/v1/chat/completions")
-        # logger.info(f"  模型: {payload['model']}")
-        # logger.info(f"  default_model: {self.default_model}")
-        # logger.info(f"  request.model: {request.model}")
-        # logger.info(f"  消息数量: {len(payload['messages'])}")
-        
+
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 f"{llm_entity['url']}/v1/chat/completions",
@@ -283,36 +251,30 @@ class LLMService:
                 },
                 json=payload
             )
-            
+
             if response.status_code == 200:
                 return response.json()
             else:
-                logger.error(f"LLM API调用失败详情:")
-                logger.error(f"  状态码: {response.status_code}")
-                logger.error(f"  响应: {response.text}")
-                logger.error(f"  请求payload: {payload}")
-                raise Exception(f"LLM API调用失败: {response.status_code} - {response.text}")
+                logger.error(f"LLM API call failed - Status: {response.status_code}, Response: {response.text}")
+                logger.error(f"Request payload: {payload}")
+                raise Exception(f"LLM API call failed: {response.status_code} - {response.text}")
 
     async def chat_stream(self, request: LLMRequest) -> AsyncGenerator[str, None]:
-        """流式聊天接口"""
+        """Streaming chat interface"""
         if request.use_mcp:
-            # 如果启用MCP，必须使用LangChain方式，失败则报错
             async for chunk in self._stream_with_langchain(request):
                 yield chunk
         else:
-            # 不使用MCP的普通流式聊天
             async for chunk in self._stream_without_mcp(request):
-                        yield chunk
-    
+                yield chunk
+
     async def _stream_with_langchain(self, request: LLMRequest) -> AsyncGenerator[str, None]:
-        """使用LangChain的流式响应"""
-        # 先获取完整结果，然后模拟流式输出
+        """Streaming response using LangChain"""
         result = await self._chat_with_langchain(request)
-        
+
         if result and "choices" in result:
             content = result["choices"][0]["message"]["content"]
-            
-            # 模拟流式输出
+
             words = content.split()
             for i, word in enumerate(words):
                 chunk_data = {
@@ -324,13 +286,11 @@ class LLMService:
                 }
                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                 await asyncio.sleep(0.05)
-            
-            # 发送结束标记
+
             yield "data: [DONE]\n\n"
 
     async def _stream_without_mcp(self, request: LLMRequest) -> AsyncGenerator[str, None]:
-        """不使用MCP的流式聊天"""
-        # 添加系统提示词
+        """Streaming chat without MCP"""
         if not any(msg.get("role") == "system" for msg in request.messages):
             request.messages.insert(0, {
                 "role": "system",
@@ -338,15 +298,14 @@ class LLMService:
             })
 
         llm_entity = settings.LLM_ENTITY[request.model]
-        
+
         payload = {
             "model": llm_entity["name"],
             "messages": request.messages,
             "temperature": request.temperature,
-            # "max_tokens": request.max_tokens,
             "stream": True
         }
-        
+
         async with httpx.AsyncClient(timeout=180.0) as client:
             print(f"xxxxxx__{llm_entity['url']}/v1/chat/completions")
             async with client.stream(
@@ -367,6 +326,4 @@ class LLMService:
                     yield f"data: {json.dumps({'error': f'HTTP {response.status_code}: {error_msg.decode()}'}, ensure_ascii=False)}\n\n"
 
 
-
 llm_service = LLMService()
-

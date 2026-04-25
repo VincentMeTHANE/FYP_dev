@@ -1,11 +1,11 @@
 """
-搜索增强服务模块 V2
-提供 Query Expansion、Re-ranking、RRF 融合等功能来提高搜索相关性
+Search Enhancement Service Module V2
+Provides Query Expansion, Re-ranking, RRF fusion and other features to improve search relevance
 
-优化项：
-1. 优化的 Re-ranking Prompt - 更严格的评分标准和推理过程
-2. 查询意图识别 - 根据查询类型针对性搜索
-3. 相关性阈值过滤 - 过滤低相关结果
+Optimization:
+1. Optimized Re-ranking Prompt - More strict scoring criteria and reasoning process
+2. Query Intent Classification - Targeted search based on query type
+3. Relevance Threshold Filtering - Filter out low relevance results
 """
 
 import asyncio
@@ -21,19 +21,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SearchResult:
-    """搜索结果数据结构"""
+    """Search result data structure"""
     title: str
     url: str
     content: str
     raw_content: str = ""
     score: float = 0.0
-    source: str = "online"  # online 或 knowledge
-    relevance_score: float = 0.0  # LLM 评估的相关性分数
+    source: str = "online"  # online or knowledge
+    relevance_score: float = 0.0  # LLM-evaluated relevance score
 
 
 @dataclass
 class ExpandedQuery:
-    """扩展后的查询"""
+    """Expanded query"""
     original_query: str
     expanded_queries: List[str]
     reasoning: str = ""
@@ -41,7 +41,7 @@ class ExpandedQuery:
 
 @dataclass
 class QueryIntent:
-    """查询意图分类"""
+    """Query intent classification"""
     query: str
     intent_type: str  # factual / conceptual / procedural / comparative / exploratory
     keywords: List[str] = field(default_factory=list)
@@ -49,13 +49,11 @@ class QueryIntent:
 
 
 class SearchEnhancementService:
-    """搜索增强服务 V2"""
+    """Search Enhancement Service V2"""
 
     def __init__(self):
         self._llm_initialized = False
-        # Query Expansion 的查询数量
         self.expansion_count = 3
-        # 相关性阈值（低于此值的过滤掉）
         self.relevance_threshold = 0.3
 
     async def _get_llm_response(
@@ -63,7 +61,7 @@ class SearchEnhancementService:
         messages: List[Dict[str, str]],
         temperature: float = 0.3
     ) -> str:
-        """调用 LLM 获取响应"""
+        """Call LLM to get response"""
         try:
             import httpx
 
@@ -95,8 +93,8 @@ class SearchEnhancementService:
                     result = response.json()
                     return result["choices"][0]["message"]["content"]
                 else:
-                    logger.error(f"LLM API 调用失败: {response.status_code} - {response.text}")
-                    raise Exception(f"LLM API 调用失败: {response.status_code}")
+                    logger.error(f"LLM API call failed: {response.status_code} - {response.text}")
+                    raise Exception(f"LLM API call failed: {response.status_code}")
 
         except Exception as e:
             logger.error(f"获取 LLM 响应失败: {str(e)}")

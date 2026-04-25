@@ -16,29 +16,29 @@ class LLMRequest(BaseModel):
     auto_select_tools: Optional[bool] = True
 
 class LLMMessageAskQuestions(BaseModel):
-    """Ask questions to the user, in order to enrich the plan of the whole report."""
+    """Ask questions to enrich the report plan."""
     message: Optional[str] = ""
-    report_id: Optional[str] = None  # string type, support MongoDB ObjectId
-    template_id: Optional[str] = None  # template ID
+    report_id: Optional[str] = None
+    template_id: Optional[str] = None
 
 class UpdateQuestion(BaseModel):
-    """Update the question to the user, in order to enrich the plan of the whole report."""
-    report_id: Optional[str] = None  # string type, support MongoDB ObjectId
+    """Update the question for report plan enrichment."""
+    report_id: Optional[str] = None
     message: Optional[str] = ""
 
 class LLMMessage(BaseModel):
-    """大模型请求模型"""
+    """LLM request model"""
     message: Optional[str] = ""
-    report_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
+    report_id: Optional[str] = None
 
 class UpdatePlan(BaseModel):
-    """大模型请求模型"""
-    report_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
-    plan_id: Optional[str] = None  # 改为字符串类型，支持MongoDB ObjectId
+    """Plan update model"""
+    report_id: Optional[str] = None
+    plan_id: Optional[str] = None
     plan: Optional[str] = ""
 
 class SearchRequest(BaseModel):
-    """搜索请求模型"""
+    """Search request model"""
     query: str
     max_results: Optional[int] = 10
     include_images: Optional[bool] = True
@@ -49,28 +49,26 @@ class SearchRequest(BaseModel):
     exclude_domains: Optional[List[str]] = None
 
 class SearchResult(BaseModel):
-    """单个搜索结果模型"""
+    """Single search result model"""
     title: Optional[str] = None
     url: Optional[str] = None
     content: Optional[str] = None
     score: Optional[float] = None
-    # raw_content: Optional[str] = None
 
 class SearchImageResult(BaseModel):
-    """单个搜索结果模型"""
+    """Search image result model"""
     url: Optional[str] = None
     description: Optional[str] = None
-    # title: Optional[str] = None
 
 class SearchResponse(BaseModel):
-    """搜索响应模型"""
+    """Search response model"""
     images: List[SearchImageResult]
     sources: List[SearchResult]
 
 class TavilySearchRequest(BaseModel):
-    """Tavily搜索请求模型"""
+    """Tavily search request model"""
     query: str
-    search_depth: Optional[str] = "basic"  # "basic" or "advanced"
+    search_depth: Optional[str] = "basic"
     include_answer: Optional[bool] = True
     include_raw_content: Optional[bool] = False
     max_results: Optional[int] = 5
@@ -80,12 +78,12 @@ class TavilySearchRequest(BaseModel):
     include_image_descriptions: Optional[bool] = False
 
 class TavilyImageResult(BaseModel):
-    """Tavily图片结果模型"""
+    """Tavily image result model"""
     url: str
     description: Optional[str] = None
 
 class TavilySearchResponse(BaseModel):
-    """Tavily搜索响应模型"""
+    """Tavily search response model"""
     answer: Optional[str] = None
     query: str
     response_time: float
@@ -94,14 +92,14 @@ class TavilySearchResponse(BaseModel):
     follow_up_questions: Optional[List[str]] = None
 
 class TavilyKey(Base):
-    """Tavily API Key表模型"""
+    """Tavily API Key table model"""
     __tablename__ = "tavily_key"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True, comment="自增主键")
-    api_key = Column(String(255), nullable=False, comment="apikey")
-    usage_count = Column(Integer, nullable=False, default=0, comment="已使用的次数")
-    remaining = Column(Integer, nullable=False, default=1000, comment="未使用的次数")
-    is_available = Column(Boolean, nullable=False, default=True, comment="是否可用")
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="Auto-increment primary key")
+    api_key = Column(String(255), nullable=False, comment="API key")
+    usage_count = Column(Integer, nullable=False, default=0, comment="Usage count")
+    remaining = Column(Integer, nullable=False, default=1000, comment="Remaining quota")
+    is_available = Column(Boolean, nullable=False, default=True, comment="Availability status")
 
 class TavilyKeyResponse(BaseModel):
     id: int
@@ -111,19 +109,19 @@ class TavilyKeyResponse(BaseModel):
     is_available: bool
 
 class LLMMessageFinal(BaseModel):
-    """最终报告请求模型"""
-    report_id: str  # 报告ID
-    split_id: str   # 分割ID
-    requirement: Optional[str] = ""  # 要求字段保持不变
+    """Final report request model"""
+    report_id: str
+    split_id: str
+    requirement: Optional[str] = ""
 
 class LLMMessage1(BaseModel):
-    """大模型请求模型"""
+    """LLM request model"""
     plan: Optional[str] = ""
     current: Optional[str] = ""
     report_id: Optional[str] = None
 
 class LLMMessageSearchSummary(BaseModel):
-    """大模型请求模型"""
+    """Search summary request model"""
     report_id: Optional[str] = None
     search_id: Optional[str] = ""
     task_id: Optional[str] = ""

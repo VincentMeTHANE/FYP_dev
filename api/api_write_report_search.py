@@ -1,5 +1,5 @@
 """
-深度研究 - 搜索服务
+Deep Research - Search Service
 """
 
 import logging
@@ -9,7 +9,7 @@ import aiohttp
 from typing import List, Optional, Dict
 
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, Depends  # type: ignore
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from bson import ObjectId
 
@@ -32,78 +32,70 @@ router = APIRouter()
 
 
 class SearchRequestWithTaskId(BaseModel):
-    """搜索请求模型 - 仅使用task_id，可选其他搜索参数"""
+    """Search request model - uses only task_id, optional search parameters"""
     task_id: str
     max_results: Optional[int] = 10
     include_images: Optional[bool] = True
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
-    use_rag: Optional[bool] = True  # 是否使用知识库检索
+    use_rag: Optional[bool] = True
 
 
 async def _store_search_results(
     task_id: str,
-    report_id: str,  # 添加report_id参数
-    plan_id: str,  # 添加plan_id参数
+    report_id: str,
+    plan_id: str,
     query: str,
     tavily_response,
     mongo_database
 ) -> int:
     """
-    将Tavily搜索结果存储到MongoDB
+    Store Tavily search results to MongoDB
 
     Args:
-        task_id: 任务ID
-        report_id: 报告ID
-        plan_id: 计划ID
-        query: 搜索查询
-        tavily_response: Tavily搜索响应
-        mongo_database: MongoDB数据库实例
+        task_id: Task ID
+        report_id: Report ID
+        plan_id: Plan ID
+        query: Search query
+        tavily_response: Tavily search response
+        mongo_database: MongoDB database instance
 
     Returns:
-        int: 存储的记录数量
+        int: Number of stored records
     """
     try:
         collection = mongo_database.search_results
         stored_count = 0
 
-        # 根据task_id删除search_results表中的对应数据
         delete_result = collection.delete_many({"task_id": task_id})
-        logger.info(f"已删除task_id为 {task_id} 的 {delete_result.deleted_count} 条搜索结果记录")
+        logger.info(f"Deleted {delete_result.deleted_count} search result records for task_id: {task_id}")
 
-        # 查询同一report_id的最大result_index，实现累加
         max_index_doc = collection.find_one(
             {"report_id": report_id},
-            sort=[("result_index", -1)]  # 降序排列，获取最大值
+            sort=[("result_index", -1)]
         )
 
-        # 确定起始索引
         start_index = 0 if max_index_doc is None else max_index_doc["result_index"] + 1
-        logger.info(f"Report ID {report_id} 的起始索引: {start_index}")
+        logger.info(f"Start index for Report ID {report_id}: {start_index}")
 
-        # 处理图片，上传到OSS
         processed_images = []
-        logger.info(f"检查图片数据，tavily_response.images: {tavily_response.images}")
+        logger.info(f"Checking image data, tavily_response.images: {tavily_response.images}")
         if tavily_response.images:
-            logger.info(f"检测到 {len(tavily_response.images)} 张原始图片")
-            # 判断是字典列表还是对象列表
+            logger.info(f"Detected {len(tavily_response.images)} original images")
             first_img = tavily_response.images[0] if tavily_response.images else None
             if isinstance(first_img, dict):
-                # 字典列表格式：{"url": "...", "description": "..."}
-                logger.info(f"图片格式：字典格式，第一张图片: {first_img}")
+                logger.info(f"Image format: dict format, first image: {first_img}")
                 processed_images = await image_service.validate_and_upload_images(tavily_response.images)
             else:
-                # 对象格式，使用属性访问
-                logger.info(f"图片格式：对象格式")
+                logger.info(f"Image format: object format")
                 processed_images = await image_service.validate_and_upload_images([
                     {"url": img.url, "description": img.description or ""}
                     for img in tavily_response.images
                 ])
-            logger.info(f"图片处理完成，成功上传 {len(processed_images)} 张图片到OSS")
+            logger.info(f"Image processing completed, {len(processed_images)} images uploaded to OSS")
         else:
-            logger.warning("tavily_response.images 为空或None，跳过图片处理")
+            logger.warning("tavily_response.images is empty or None, skipping image processing")
 
-        # 为每个搜索结果创建一条MongoDB记录
         for idx, result in enumerate(tavily_response.results):
             document = {
                 "task_id": task_id,
@@ -121,21 +113,20 @@ async def _store_search_results(
                 "tavily_answer": tavily_response.answer,
                 "response_time": tavily_response.response_time,
                 "follow_up_questions": tavily_response.follow_up_questions,
-                "images": processed_images,  # 使用处理后的图片
+                "images": processed_images,
                 "is_web": True,
-                "status": "完成",
+                "status": "completed",
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
             }
 
-            # 插入文档
             collection.insert_one(document)
             stored_count += 1
 
-        logger.info(f"成功存储 {stored_count} 条搜索结果")
+        logger.info(f"Successfully stored {stored_count} search results")
         return stored_count
 
     except Exception as e:
-        logger.error(f"存储搜索结果失败: {str(e)}")
+        logger.error(f"Failed to store search results: {str(e)}")
         raise
 
 
@@ -150,40 +141,36 @@ async def _store_search_results_with_images(
     result_type: str = "online"
 ) -> int:
     """
-    将Tavily搜索结果存储到MongoDB（支持预处理的图片）
+    Store Tavily search results to MongoDB (with pre-processed images)
 
     Args:
-        task_id: 任务ID
-        report_id: 报告ID
-        plan_id: 计划ID
-        query: 搜索查询
-        tavily_response: Tavily搜索响应
-        mongo_database: MongoDB数据库实例
-        processed_images: 预处理的图片列表
-        result_type: 结果类型 ("online" 或 "knowledge")
+        task_id: Task ID
+        report_id: Report ID
+        plan_id: Plan ID
+        query: Search query
+        tavily_response: Tavily search response
+        mongo_database: MongoDB database instance
+        processed_images: Pre-processed image list
+        result_type: Result type ("online" or "knowledge")
 
     Returns:
-        int: 存储的记录数量
+        int: Number of stored records
     """
     try:
         collection = mongo_database.search_results
         stored_count = 0
 
-        # 根据task_id删除search_results表中的对应数据
         delete_result = collection.delete_many({"task_id": task_id})
-        logger.info(f"已删除task_id为 {task_id} 的 {delete_result.deleted_count} 条搜索结果记录")
+        logger.info(f"Deleted {delete_result.deleted_count} search result records for task_id: {task_id}")
 
-        # 查询同一report_id的最大result_index，实现累加
         max_index_doc = collection.find_one(
             {"report_id": report_id},
             sort=[("result_index", -1)]
         )
 
-        # 确定起始索引
         start_index = 0 if max_index_doc is None else max_index_doc["result_index"] + 1
-        logger.info(f"Report ID {report_id} 的起始索引: {start_index}")
+        logger.info(f"Start index for Report ID {report_id}: {start_index}")
 
-        # 为每个搜索结果创建一条MongoDB记录
         for idx, result in enumerate(tavily_response.results):
             document = {
                 "task_id": task_id,
@@ -203,19 +190,18 @@ async def _store_search_results_with_images(
                 "follow_up_questions": tavily_response.follow_up_questions,
                 "images": processed_images if processed_images else [],
                 "is_web": result_type == "online",
-                "status": "完成",
+                "status": "completed",
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
             }
 
-            # 插入文档
             collection.insert_one(document)
             stored_count += 1
 
-        logger.info(f"成功存储 {stored_count} 条搜索结果")
+        logger.info(f"Successfully stored {stored_count} search results")
         return stored_count
 
     except Exception as e:
-        logger.error(f"存储搜索结果失败: {str(e)}")
+        logger.error(f"Failed to store search results: {str(e)}")
         raise
 
 
@@ -228,32 +214,29 @@ async def _store_knowledge_results(
     mongo_database
 ) -> int:
     """
-    将知识库检索结果存储到MongoDB
+    Store knowledge base retrieval results to MongoDB
 
     Args:
-        task_id: 任务ID
-        report_id: 报告ID
-        plan_id: 计划ID
-        query: 搜索查询
-        knowledge_chunks: 知识库检索结果
-        mongo_database: MongoDB数据库实例
+        task_id: Task ID
+        report_id: Report ID
+        plan_id: Plan ID
+        query: Search query
+        knowledge_chunks: Knowledge base retrieval results
+        mongo_database: MongoDB database instance
 
     Returns:
-        int: 存储的记录数量
+        int: Number of stored records
     """
     try:
         collection = mongo_database.search_results
 
-        # 查询同一report_id的最大result_index，实现累加
         max_index_doc = collection.find_one(
             {"report_id": report_id},
             sort=[("result_index", -1)]
         )
 
-        # 确定起始索引
         start_index = 0 if max_index_doc is None else max_index_doc["result_index"] + 1
 
-        # 获取当前已存在的knowledge类型记录数（避免重复）
         existing_kb_count = collection.count_documents({
             "task_id": task_id,
             "type": "knowledge"
@@ -262,7 +245,6 @@ async def _store_knowledge_results(
 
         stored_count = 0
 
-        # 为每个知识库结果创建MongoDB记录
         for idx, chunk in enumerate(knowledge_chunks):
             document = {
                 "task_id": task_id,
@@ -271,7 +253,7 @@ async def _store_knowledge_results(
                 "type": "knowledge",
                 "query": query,
                 "result_index": start_index + idx,
-                "title": chunk.document_name or "知识库文档",
+                "title": chunk.document_name or "Knowledge Base Document",
                 "url": f"knowledge_base://{chunk.document_name}",
                 "content": chunk.content,
                 "raw_content": chunk.content,
@@ -283,19 +265,18 @@ async def _store_knowledge_results(
                 "images": [],
                 "is_web": False,
                 "document_type": chunk.document_type,
-                "status": "完成",
+                "status": "completed",
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
             }
 
-            # 插入文档
             collection.insert_one(document)
             stored_count += 1
 
-        logger.info(f"成功存储 {stored_count} 条知识库结果")
+        logger.info(f"Successfully stored {stored_count} knowledge base results")
         return stored_count
 
     except Exception as e:
-        logger.error(f"存储知识库结果失败: {str(e)}")
+        logger.error(f"Failed to store knowledge base results: {str(e)}")
         raise
 
 
@@ -305,20 +286,19 @@ async def _store_response_data(
     mongo_database
 ) -> ObjectId:
     """
-    存储响应数据到MongoDB
+    Store response data to MongoDB
     
     Args:
-        task_id: 任务ID
-        response_data: 响应数据
-        mongo_database: MongoDB数据库实例
+        task_id: Task ID
+        response_data: Response data
+        mongo_database: MongoDB database instance
         
     Returns:
-        ObjectId: 插入文档的ID
+        ObjectId: Inserted document ID
     """
     try:
         collection = mongo_database.report_search
         
-        # 构造文档
         document = {
             "task_id": task_id,
             "query": response_data.get("query", ""),
@@ -328,13 +308,12 @@ async def _store_response_data(
             "created_at": datetime.datetime.now(datetime.timezone.utc)
         }
         
-        # 插入文档
         result = collection.insert_one(document)
-        logger.info(f"成功存储响应数据，ID: {result.inserted_id}")
+        logger.info(f"Successfully stored response data, ID: {result.inserted_id}")
         return result.inserted_id
         
     except Exception as e:
-        logger.error(f"存储响应数据失败: {str(e)}")
+        logger.error(f"Failed to store response data: {str(e)}")
         raise
 
 
@@ -344,28 +323,25 @@ async def search(
     db: Session = Depends(get_db)
 ):
     """
-    执行Tavily搜索 + RAG知识库检索（混合搜索）
+    Execute Tavily search + RAG knowledge base retrieval (hybrid search)
 
     Args:
-        request: 搜索请求
-        db: 数据库会话
+        request: Search request
+        db: Database session
 
     Returns:
-        Result: 搜索结果
+        Result: Search results
     """
-    # 创建分布式锁，锁的key基于task_id，确保同一任务只有一个请求能执行搜索
     lock_key = f"search_task_{request.task_id}"
     lock = create_async_lock(lock_key, timeout=30, retry_interval=0.1)
 
-    # 尝试获取分布式锁，最多等待5秒
     if not await lock.acquire(blocking=True, timeout=5):
-        logger.warning(f"获取分布式锁失败，task_id: {request.task_id} 正在被其他请求处理")
-        raise HTTPException(status_code=429, detail="该任务正在处理中，请稍后重试")
+        logger.warning(f"Failed to acquire distributed lock, task_id: {request.task_id} is being processed by another request")
+        raise HTTPException(status_code=429, detail="Task is being processed, please retry later")
 
     try:
-        logger.info(f"开始执行搜索，task_id: {request.task_id}, use_rag: {request.use_rag}")
+        logger.info(f"Starting search execution, task_id: {request.task_id}, use_rag: {request.use_rag}")
 
-        # 获取任务信息
         task_info = await get_task_info(request.task_id)
         if not task_info:
             raise BizError(
@@ -373,33 +349,30 @@ async def search(
                 message=ErrorCode.get_message(ErrorCode.TASK_NOT_EXIST)
             )
 
-        # 从task_info中获取query
         query = task_info.get("query", "")
         if not query:
             raise BizError(
                 code=ErrorCode.get_code(ErrorCode.PARAM_ERROR),
-                message="任务中未包含查询语句"
+                message="Query statement not included in task"
             )
 
         report_id = task_info["report_id"]
         plan_id = task_info["plan_id"]
 
-        # ===== 执行知识库检索 (RAG) =====
         knowledge_chunks = []
         if request.use_rag:
             try:
-                logger.info(f"开始知识库检索，query: {query}")
+                logger.info(f"Starting knowledge base retrieval, query: {query}")
                 knowledge_chunks = await rag_service.retrieve(
                     query=query,
                     top_k=5,
                     score_threshold=0.5
                 )
-                logger.info(f"知识库检索完成，获取到 {len(knowledge_chunks)} 条结果")
+                logger.info(f"Knowledge base retrieval completed, got {len(knowledge_chunks)} results")
             except Exception as e:
-                logger.warning(f"知识库检索失败: {str(e)}，将继续执行网络搜索")
+                logger.warning(f"Knowledge base retrieval failed: {str(e)}, will continue with web search")
                 knowledge_chunks = []
 
-        # ===== 执行网络搜索 (Tavily) =====
         tavily_request = TavilySearchRequest(
             query=query,
             search_depth="advanced" if request.max_results > 5 else "basic",
@@ -412,11 +385,8 @@ async def search(
             exclude_domains=request.exclude_domains
         )
 
-        # 执行搜索
         tavily_response = await tavily_service.search(tavily_request)
 
-        # ===== 存储搜索结果到MongoDB =====
-        # 先存储网络搜索结果
         stored_count = await _store_search_results(
             request.task_id,
             report_id,
@@ -426,7 +396,6 @@ async def search(
             mongo_db
         )
 
-        # 再存储知识库结果
         if knowledge_chunks:
             kb_stored_count = await _store_knowledge_results(
                 request.task_id,
@@ -436,12 +405,10 @@ async def search(
                 knowledge_chunks,
                 mongo_db
             )
-            logger.info(f"知识库结果已存储，{kb_stored_count} 条")
+            logger.info(f"Knowledge base results stored, {kb_stored_count} records")
 
-        # 更新serp_task状态为searchCompleted
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchCompleted")
 
-        # 构造响应数据 - 需要将Pydantic模型转换为字典
         response_data = {
             "task_id": request.task_id,
             "query": query,
@@ -453,44 +420,39 @@ async def search(
             "web_count": len(tavily_response.results) if tavily_response.results else 0
         }
 
-        # 存储响应数据
         await _store_response_data(request.task_id, response_data, mongo_db)
 
-        logger.info(f"搜索完成，task_id: {request.task_id}, 网络结果: {stored_count}, 知识库结果: {len(knowledge_chunks)}")
+        logger.info(f"Search completed, task_id: {request.task_id}, web results: {stored_count}, knowledge results: {len(knowledge_chunks)}")
         return Result.success(response_data)
 
     except BizError as e:
-        # 更新serp_task状态为searchFailed
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchFailed")
-        logger.error(f"业务错误: {e.message}")
+        logger.error(f"Business error: {e.message}")
         raise HTTPException(status_code=400, detail=e.message)
 
     except Exception as e:
-        # 更新serp_task状态为searchFailed
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchFailed")
-        logger.error(f"搜索失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+        logger.error(f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
     finally:
-        # 释放分布式锁
         try:
             await lock.release()
-            logger.info(f"释放分布式锁成功，task_id: {request.task_id}")
+            logger.info(f"Released distributed lock successfully, task_id: {request.task_id}")
         except Exception as e:
-            logger.error(f"释放分布式锁失败: {str(e)}")
+            logger.error(f"Failed to release distributed lock: {str(e)}")
 
 
 @router.get("/detail/{task_id}", response_model=Result)
 async def get_detail(
-    task_id: str  # 改为字符串类型，支持ObjectId
+    task_id: str
 ):
     """
-    根据任务ID获取详细信息（如有多条记录返回最新的）
+    Get details by task ID (returns latest if multiple records)
     """
     search_summary = mongo_api_service_manager.get_search_summary(task_id)
     sources = mongo_api_service_manager.get_results_task_id(task_id)
 
-    # 提取所有sources中的images，合并为一维数组
     images = []
     for source in sources:
         source["raw_content"] = ""
@@ -501,17 +463,14 @@ async def get_detail(
 
     logger.info(f"Total images collected: {images}")
 
-    # 构建返回数据，保持与search接口相同的格式
     response_data = {
         "task_id": task_id,
         "images": images,
         "sources": sources
     }
 
-    # 添加判断：如果search_summary不为空
     if search_summary and "response" in search_summary:
         response_data_val = search_summary["response"]
-        # 安全访问嵌套字段
         if isinstance(response_data_val, dict) and "choices" in response_data_val:
             choices = response_data_val["choices"]
             if isinstance(choices, list) and len(choices) > 0:
@@ -525,14 +484,14 @@ async def get_detail(
 
 
 class EnhancedSearchRequest(BaseModel):
-    """增强搜索请求模型"""
+    """Enhanced search request model"""
     task_id: str
-    use_expansion: bool = True   # 是否使用 Query Expansion
-    use_rerank: bool = True     # 是否使用 Re-ranking
-    use_intent: bool = True     # 是否使用意图识别
+    use_expansion: bool = True
+    use_rerank: bool = True
+    use_intent: bool = True
     max_results: int = 10
-    include_images: bool = True  # 是否包含图片
-    relevance_threshold: float = 0.3  # 相关性阈值
+    include_images: bool = True
+    relevance_threshold: float = 0.3
 
 
 @router.post("/search", response_model=Result)
@@ -541,37 +500,35 @@ async def enhanced_search(
     db: Session = Depends(get_db)
 ):
     """
-    执行增强搜索 - 集成 Query Expansion + Re-ranking + RRF 融合
+    Execute enhanced search - Integration of Query Expansion + Re-ranking + RRF Fusion
 
-    工作流：
-    1. Query Expansion - 将单一查询扩展为多个子查询
-    2. 并行搜索 - 对每个子查询执行搜索
-    3. RRF 融合 - 合并多个搜索结果
-    4. Re-ranking - 使用 LLM 对结果重排序
+    Workflow:
+    1. Query Expansion - Expand single query into multiple sub-queries
+    2. Parallel Search - Execute search for each sub-query
+    3. RRF Fusion - Merge multiple search results
+    4. Re-ranking - Re-rank results using LLM
 
-    预期效果：
-    - Precision 提升 20-40%
-    - NDCG 提升 15-30%
+    Expected Effects:
+    - Precision improved by 20-40%
+    - NDCG improved by 15-30%
 
     Args:
-        request: 增强搜索请求
-        db: 数据库会话
+        request: Enhanced search request
+        db: Database session
 
     Returns:
-        Result: 增强后的搜索结果
+        Result: Enhanced search results
     """
-    # 创建分布式锁
     lock_key = f"enhanced_search_task_{request.task_id}"
     lock = create_async_lock(lock_key, timeout=30, retry_interval=0.1)
 
     if not await lock.acquire(blocking=True, timeout=5):
-        raise HTTPException(status_code=429, detail="该任务正在处理中，请稍后重试")
+        raise HTTPException(status_code=429, detail="Task is being processed, please retry later")
 
     try:
-        logger.info(f"开始执行增强搜索，task_id: {request.task_id}, "
+        logger.info(f"Starting enhanced search execution, task_id: {request.task_id}, "
                    f"expansion={request.use_expansion}, rerank={request.use_rerank}")
 
-        # 获取任务信息
         task_info = await get_task_info(request.task_id)
         if not task_info:
             raise BizError(
@@ -587,24 +544,22 @@ async def enhanced_search(
         if not query:
             raise BizError(
                 code=ErrorCode.get_code(ErrorCode.PARAM_ERROR),
-                message="任务中未包含查询语句"
+                message="Query statement not included in task"
             )
 
-        # ===== 执行知识库检索 (RAG) =====
         knowledge_chunks = []
         try:
-            logger.info(f"开始知识库检索，query: {query}")
+            logger.info(f"Starting knowledge base retrieval, query: {query}")
             knowledge_chunks = await rag_service.retrieve(
                 query=query,
                 top_k=5,
                 score_threshold=0.5
             )
-            logger.info(f"知识库检索完成，获取到 {len(knowledge_chunks)} 条结果")
+            logger.info(f"Knowledge base retrieval completed, got {len(knowledge_chunks)} results")
         except Exception as e:
-            logger.warning(f"知识库检索失败: {str(e)}，将继续执行网络搜索")
+            logger.warning(f"Knowledge base retrieval failed: {str(e)}, will continue with web search")
             knowledge_chunks = []
 
-        # 执行增强搜索（返回结果和图片）
         enhanced_results, enhanced_images = await enhanced_search_service.enhanced_search(
             query=query,
             research_goal=research_goal,
@@ -616,9 +571,8 @@ async def enhanced_search(
             relevance_threshold=request.relevance_threshold
         )
 
-        logger.info(f"增强搜索完成，results: {len(enhanced_results)}, images: {len(enhanced_images) if enhanced_images else 0}")
+        logger.info(f"Enhanced search completed, results: {len(enhanced_results)}, images: {len(enhanced_images) if enhanced_images else 0}")
 
-        # 构造 Tavily 格式的响应（让 _store_search_results 处理图片）
         tavily_response = type('obj', (object,), {
             'results': [
                 {
@@ -636,7 +590,6 @@ async def enhanced_search(
             'response_time': 0
         })()
 
-        # 存储网络搜索结果到 MongoDB（使用 _store_search_results，自动处理图片）
         stored_count = await _store_search_results(
             request.task_id,
             report_id,
@@ -646,7 +599,6 @@ async def enhanced_search(
             mongo_db
         )
 
-        # 存储知识库结果到 MongoDB（type: "knowledge"）
         if knowledge_chunks:
             kb_stored_count = await _store_knowledge_results(
                 request.task_id,
@@ -656,12 +608,10 @@ async def enhanced_search(
                 knowledge_chunks,
                 mongo_db
             )
-            logger.info(f"知识库结果已存储，{kb_stored_count} 条")
+            logger.info(f"Knowledge base results stored, {kb_stored_count} records")
 
-        # 更新任务状态
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchCompleted")
 
-        # 构造响应数据 - 与 original 接口保持一致
         response_data = {
             "task_id": request.task_id,
             "query": query,
@@ -672,11 +622,10 @@ async def enhanced_search(
             "web_count": len(tavily_response.results) if tavily_response.results else 0
         }
 
-        # 存储响应数据
         await _store_response_data(request.task_id, response_data, mongo_db)
 
-        logger.info(f"增强搜索完成，task_id: {request.task_id}, "
-                   f"网络结果: {stored_count}, 知识库结果: {len(knowledge_chunks)}")
+        logger.info(f"Enhanced search completed, task_id: {request.task_id}, "
+                   f"web results: {stored_count}, knowledge results: {len(knowledge_chunks)}")
 
         return Result.success(response_data)
 
@@ -685,12 +634,12 @@ async def enhanced_search(
         raise HTTPException(status_code=400, detail=e.message)
 
     except Exception as e:
-        logger.error(f"增强搜索失败: {str(e)}")
+        logger.error(f"Enhanced search failed: {str(e)}")
         mongo_api_service_manager.update_serp_task_search_state(request.task_id, "searchFailed")
-        raise HTTPException(status_code=500, detail=f"增强搜索失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Enhanced search failed: {str(e)}")
 
     finally:
         try:
             await lock.release()
         except Exception as e:
-            logger.error(f"释放分布式锁失败: {str(e)}")
+            logger.error(f"Failed to release distributed lock: {str(e)}")

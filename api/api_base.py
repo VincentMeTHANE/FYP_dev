@@ -9,15 +9,15 @@ router = APIRouter()
 
 @router.get("/")
 async def root():
-    """root path"""
+    """Root path"""
     return {
-        "message": "Deep Research Python - LangChain + MCP版",
+        "message": "Deep Research Python - LangChain + MCP Version",
         "version": "2.0.0",
         "features": [
-            "LangChain ReAct智能体",
-            "自动工具选择",
-            "URL配置MCP服务器",
-            "流式响应支持"
+            "LangChain ReAct Agent",
+            "Auto Tool Selection",
+            "URL-configured MCP Server",
+            "Streaming Response Support"
         ]
     }
 

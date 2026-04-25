@@ -1,6 +1,6 @@
 """
-知识库管理 API
-提供文档上传、删除、查询等管理功能
+Knowledge Base Management API
+Provides document upload, delete, query and other management functions
 """
 
 import logging
@@ -22,7 +22,7 @@ router = APIRouter()
 # ==================== Request Models ====================
 
 class DocumentMetadata(BaseModel):
-    """文档元数据模型"""
+    """Document metadata model"""
     category: Optional[str] = None
     tags: Optional[List[str]] = None
     description: Optional[str] = None
@@ -30,14 +30,14 @@ class DocumentMetadata(BaseModel):
 
 
 class DocumentQuery(BaseModel):
-    """文档查询模型"""
+    """Document query model"""
     document_id: Optional[str] = None
     filename: Optional[str] = None
     status: Optional[str] = "active"
 
 
 class SearchQuery(BaseModel):
-    """知识库检索查询模型"""
+    """Knowledge base search query model"""
     query: str
     top_k: Optional[int] = 5
     score_threshold: Optional[float] = 0.5
@@ -54,38 +54,35 @@ async def upload_document(
     author: Optional[str] = Form(None)
 ):
     """
-    上传文档到知识库
+    Upload document to knowledge base
     
-    支持的文件类型: PDF, MD, TXT
+    Supported file types: PDF, MD, TXT
     
     Args:
-        file: 要上传的文件
-        category: 文档分类
-        tags: 文档标签 (逗号分隔)
-        description: 文档描述
-        author: 文档作者
+        file: File to upload
+        category: Document category
+        tags: Document tags (comma-separated)
+        description: Document description
+        author: Document author
         
     Returns:
-        上传结果
+        Upload result
     """
     try:
-        # 验证文件类型
         allowed_extensions = ['pdf', 'md', 'markdown', 'txt']
         file_ext = file.filename.lower().split('.')[-1] if '.' in file.filename else ''
         
         if file_ext not in allowed_extensions:
             raise HTTPException(
                 status_code=400,
-                detail=f"不支持的文件类型: {file_ext}. 支持的类型: {', '.join(allowed_extensions)}"
+                detail=f"Unsupported file type: {file_ext}. Supported types: {', '.join(allowed_extensions)}"
             )
         
-        # 读取文件内容
         content = await file.read()
         
         if len(content) == 0:
-            raise HTTPException(status_code=400, detail="文件内容为空")
+            raise HTTPException(status_code=400, detail="File content is empty")
         
-        # 构建元数据
         metadata = {}
         if category:
             metadata["category"] = category
@@ -96,7 +93,6 @@ async def upload_document(
         if author:
             metadata["author"] = author
         
-        # 添加到知识库
         result = await rag_service.add_documents(
             file_content=content,
             filename=file.filename,
@@ -116,19 +112,19 @@ async def upload_document(
         raise
     except Exception as e:
         logger.error(f"Failed to upload document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
 
 
 @router.delete("/document/{document_id}", response_model=Result)
 async def delete_document(document_id: str):
     """
-    从知识库删除文档
+    Delete document from knowledge base
     
     Args:
-        document_id: 文档 ID
+        document_id: Document ID
         
     Returns:
-        删除结果
+        Delete result
     """
     try:
         result = await rag_service.delete_document(doc_id=document_id)
@@ -140,25 +136,25 @@ async def delete_document(document_id: str):
                 "status": "deleted"
             })
         else:
-            raise HTTPException(status_code=404, detail="文档不存在或删除失败")
+            raise HTTPException(status_code=404, detail="Document does not exist or deletion failed")
             
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to delete document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除文档失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 
 @router.get("/documents", response_model=Result)
 async def list_documents(status: str = "active"):
     """
-    列出知识库中的所有文档
+    List all documents in knowledge base
     
     Args:
-        status: 文档状态过滤 (active, deleted, all)
+        status: Document status filter (active, deleted, all)
         
     Returns:
-        文档列表
+        Document list
     """
     try:
         status_filter = None if status == "all" else status
@@ -171,25 +167,25 @@ async def list_documents(status: str = "active"):
         
     except Exception as e:
         logger.error(f"Failed to list documents: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取文档列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
 
 
 @router.get("/document/{document_id}", response_model=Result)
 async def get_document(document_id: str):
     """
-    获取文档详细信息
+    Get detailed document information
     
     Args:
-        document_id: 文档 ID
+        document_id: Document ID
         
     Returns:
-        文档详情
+        Document details
     """
     try:
         document = await rag_service.get_document_info(doc_id=document_id)
         
         if not document:
-            raise HTTPException(status_code=404, detail="文档不存在")
+            raise HTTPException(status_code=404, detail="Document does not exist")
         
         return Result.success(document)
         
@@ -197,19 +193,19 @@ async def get_document(document_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to get document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取文档详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get document: {str(e)}")
 
 
 @router.post("/search", response_model=Result)
 async def search_knowledge_base(request: SearchQuery):
     """
-    搜索知识库
+    Search knowledge base
     
     Args:
-        request: 搜索请求
+        request: Search request
         
     Returns:
-        搜索结果
+        Search results
     """
     try:
         chunks = await rag_service.retrieve(
@@ -237,22 +233,19 @@ async def search_knowledge_base(request: SearchQuery):
         
     except Exception as e:
         logger.error(f"Failed to search knowledge base: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"搜索知识库失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to search knowledge base: {str(e)}")
 
 
 @router.get("/stats", response_model=Result)
 async def get_knowledge_base_stats():
     """
-    获取知识库统计信息
+    Get knowledge base statistics
     
     Returns:
-        统计信息
+        Statistics
     """
     try:
-        # 获取活跃文档数
         active_docs = await rag_service.list_documents(status="active")
-        
-        # 获取总文档数
         all_docs = await rag_service.list_documents(status=None)
         
         return Result.success({
@@ -264,16 +257,16 @@ async def get_knowledge_base_stats():
         
     except Exception as e:
         logger.error(f"Failed to get stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取统计信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
 
 
 @router.post("/init", response_model=Result)
 async def initialize_knowledge_base():
     """
-    初始化知识库服务
+    Initialize knowledge base service
     
     Returns:
-        初始化结果
+        Initialization result
     """
     try:
         await rag_service.initialize()
@@ -285,4 +278,4 @@ async def initialize_knowledge_base():
         
     except Exception as e:
         logger.error(f"Failed to initialize knowledge base: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"初始化知识库失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize knowledge base: {str(e)}")

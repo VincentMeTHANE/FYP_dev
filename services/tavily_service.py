@@ -12,35 +12,33 @@ logger = logging.getLogger(__name__)
 
 
 class TavilyService:
-    """Tavily搜索服务"""
-    
+    """Tavily search service"""
+
     def __init__(self):
         self.base_url = settings.TAVILY_BASE_URL
         self.timeout = 30.0
-    
+
     async def search(self, request: TavilySearchRequest, db: Optional[Session] = None) -> TavilySearchResponse:
         """
-        执行Tavily搜索
-        
+        Execute Tavily search
+
         Args:
-            request: 搜索请求
-            db: 数据库会话（可选，如果为None则从配置获取API Key）
-            
+            request: Search request
+            db: Database session (optional)
+
         Returns:
-            TavilySearchResponse: 搜索结果
+            TavilySearchResponse: Search results
         """
         start_time = time.time()
-        
+
         try:
-            # 直接从配置文件获取API Key
             api_key = getattr(settings, 'TAVILY_API_KEY', None)
             if not api_key:
-                raise ValueError("没有配置Tavily API Key，请检查config.py中的TAVILY_API_KEY配置")
-            
+                raise ValueError("Tavily API Key not configured, please check config.py")
+
             if api_key == "tvly-YOUR_API_KEY_HERE":
-                logger.warning("检测到默认的Tavily API Key占位符，请更新config.py中的TAVILY_API_KEY")
-            
-            # 准备搜索请求
+                logger.warning("Default Tavily API Key placeholder detected, please update TAVILY_API_KEY in config.py")
+
             search_data = {
                 "api_key": api_key,
                 "query": request.query,
@@ -51,34 +49,30 @@ class TavilyService:
                 "include_images": request.include_images,
                 "include_image_descriptions": request.include_image_descriptions
             }
-            
-            # 添加可选参数
+
             if request.include_domains:
                 search_data["include_domains"] = request.include_domains
             if request.exclude_domains:
                 search_data["exclude_domains"] = request.exclude_domains
-            
-            logger.info(f"使用API Key {api_key[:10] if api_key else 'None'}... 执行Tavily搜索: {request.query}")
-            
-            # 发送搜索请求
+
+            logger.info(f"Executing Tavily search with API Key {api_key[:10] if api_key else 'None'}...: {request.query}")
+
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/search",
                     headers={"Content-Type": "application/json"},
                     json=search_data
                 )
-                
+
                 response_time = time.time() - start_time
-                
+
                 if response.status_code != 200:
-                    error_msg = f"Tavily API调用失败: {response.status_code} - {response.text}"
+                    error_msg = f"Tavily API call failed: {response.status_code} - {response.text}"
                     logger.error(error_msg)
-                    # 这里可以考虑回滚key的使用计数，但为了简化，暂时不实现
                     raise ValueError(error_msg)
-                
+
                 result = response.json()
-                
-                # 构造响应
+
                 tavily_response = TavilySearchResponse(
                     answer=result.get("answer"),
                     query=request.query,
@@ -87,40 +81,39 @@ class TavilyService:
                     results=result.get("results", []),
                     follow_up_questions=result.get("follow_up_questions", [])
                 )
-                
-                logger.info(f"Tavily搜索完成，耗时: {response_time:.2f}秒，结果数: {len(tavily_response.results)}")
-                
+
+                logger.info(f"Tavily search completed, time: {response_time:.2f}s, results: {len(tavily_response.results)}")
+
                 return tavily_response
-                
+
         except httpx.TimeoutException:
-            error_msg = f"Tavily API调用超时（>{self.timeout}秒）"
+            error_msg = f"Tavily API call timeout (>{self.timeout}s)"
             logger.error(error_msg)
             raise ValueError(error_msg)
         except Exception as e:
-            error_msg = f"Tavily搜索失败: {str(e)}"
+            error_msg = f"Tavily search failed: {str(e)}"
             logger.error(error_msg)
             raise ValueError(error_msg)
-    
+
     async def batch_search(self, requests: list[TavilySearchRequest], db: Session) -> list[TavilySearchResponse]:
         """
-        批量搜索
-        
+        Batch search
+
         Args:
-            requests: 搜索请求列表
-            db: 数据库会话
-            
+            requests: List of search requests
+            db: Database session
+
         Returns:
-            list[TavilySearchResponse]: 搜索结果列表
+            list[TavilySearchResponse]: List of search results
         """
         results = []
-        
+
         for request in requests:
             try:
                 result = await self.search(request, db)
                 results.append(result)
             except Exception as e:
-                logger.error(f"批量搜索中的单个请求失败: {e}")
-                # 创建错误响应
+                logger.error(f"Single request failed in batch search: {e}")
                 error_response = TavilySearchResponse(
                     answer=None,
                     query=request.query,
@@ -130,30 +123,29 @@ class TavilyService:
                     follow_up_questions=[]
                 )
                 results.append(error_response)
-        
+
         return results
-    
+
     def validate_search_request(self, request: TavilySearchRequest) -> Optional[str]:
         """
-        验证搜索请求参数
-        
+        Validate search request parameters
+
         Args:
-            request: 搜索请求
-            
+            request: Search request
+
         Returns:
-            Optional[str]: 验证错误信息，如果验证通过返回None
+            Optional[str]: Validation error message, or None if valid
         """
         if not request.query or not request.query.strip():
-            return "搜索查询不能为空"
-        
+            return "Search query cannot be empty"
+
         if request.max_results and (request.max_results < 1 or request.max_results > 20):
-            return "max_results必须在1-20之间"
-        
+            return "max_results must be between 1 and 20"
+
         if request.search_depth and request.search_depth not in ["basic", "advanced"]:
-            return "search_depth必须是'basic'或'advanced'"
-        
+            return "search_depth must be 'basic' or 'advanced'"
+
         return None
 
 
-# 全局实例
 tavily_service = TavilyService()

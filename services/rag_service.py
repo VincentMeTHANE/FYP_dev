@@ -1,6 +1,6 @@
 """
-RAG 知识库检索服务
-支持向量检索、文档管理和混合搜索
+RAG Knowledge Base Retrieval Service
+Supports vector search, document management, and hybrid search
 """
 
 import logging
@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class KnowledgeChunk:
-    """知识库文档片段"""
+    """Knowledge base document chunk"""
     id: str
     content: str
-    source: str  # knowledge_base
+    source: str
     score: float
     metadata: Dict[str, Any]
     document_name: str = ""
@@ -35,10 +35,10 @@ class KnowledgeChunk:
 
 @dataclass
 class Document:
-    """知识库文档"""
+    """Knowledge base document"""
     id: str
     name: str
-    type: str  # pdf, md
+    type: str
     content: str
     chunks: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -47,7 +47,7 @@ class Document:
 
 
 class EmbeddingService:
-    """向量化服务 - 支持阿里云百炼、OpenAI 和本地模型"""
+    """Embedding service supporting Dashscope, OpenAI, and local models"""
 
     def __init__(self):
         self.embedding_model = settings.RAG_EMBEDDING_MODEL
@@ -55,7 +55,6 @@ class EmbeddingService:
         self.vector_size = settings.QDRANT_VECTOR_SIZE
         self._client = None
 
-        # 根据 provider 选择不同的配置
         if self.provider == "dashscope":
             self.api_key = settings.DASHSCOPE_API_KEY
             self.base_url = settings.DASHSCOPE_EMBEDDING_BASE_URL
@@ -67,7 +66,7 @@ class EmbeddingService:
             self.base_url = None
 
     async def _get_client(self):
-        """获取 HTTP 客户端"""
+        """Get HTTP client"""
         if self._client is None:
             import httpx
             self._client = httpx.AsyncClient(
@@ -82,13 +81,13 @@ class EmbeddingService:
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """
-        将文本列表向量化
+        Embed a list of texts into vectors
 
         Args:
-            texts: 文本列表
+            texts: List of texts
 
         Returns:
-            向量列表
+            List of vectors
         """
         try:
             if self.provider == "dashscope":
@@ -105,13 +104,11 @@ class EmbeddingService:
             raise
 
     async def _embed_with_dashscope(self, texts: List[str]) -> List[List[float]]:
-        """使用阿里云百炼 embedding API"""
-        # 检查输入
+        """Use Dashscope embedding API"""
         if not texts:
             logger.warning("Empty texts list provided to embed_texts")
             return []
 
-        # 过滤空字符串
         texts = [t for t in texts if t and t.strip()]
         if not texts:
             logger.warning("All texts are empty after filtering")
@@ -121,7 +118,6 @@ class EmbeddingService:
 
         client = await self._get_client()
 
-        # 阿里云限制每次最多 10 个文本，需要分批处理
         batch_size = 10
         all_embeddings = []
 
@@ -148,13 +144,12 @@ class EmbeddingService:
         return all_embeddings
 
     async def _embed_with_openai(self, texts: List[str]) -> List[List[float]]:
-        """使用 OpenAI embedding API"""
+        """Use OpenAI embedding API"""
         if not texts:
             return []
 
         client = await self._get_client()
 
-        # OpenAI 限制每次最多 2048 个输入，分批处理
         batch_size = 100
         all_embeddings = []
 
@@ -180,7 +175,7 @@ class EmbeddingService:
         return all_embeddings
 
     async def _embed_with_local(self, texts: List[str]) -> List[List[float]]:
-        """使用本地 embedding 模型"""
+        """Use local embedding model"""
         try:
             from sentence_transformers import SentenceTransformer
 
@@ -199,46 +194,44 @@ class EmbeddingService:
 
     async def embed_query(self, query: str) -> List[float]:
         """
-        将查询向量化
+        Embed a query string
 
         Args:
-            query: 查询文本
+            query: Query text
 
         Returns:
-            查询向量
+            Query vector
         """
         embeddings = await self.embed_texts([query])
         return embeddings[0]
 
 
 class DocumentProcessor:
-    """文档处理服务 - PDF 和 MD 文件处理"""
-    
+    """Document processing service for PDF and MD files"""
+
     @staticmethod
     def process_pdf(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
         """
-        处理 PDF 文件，提取文本并分块
-        
+        Process PDF file, extract text and split into chunks
+
         Args:
-            file_content: PDF 文件内容 (bytes)
-            filename: 文件名
-            
+            file_content: PDF file content (bytes)
+            filename: File name
+
         Returns:
-            分块后的文档列表
+            List of processed document chunks
         """
         try:
             from pypdf import PdfReader
             from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-            # 读取 PDF
             import io
             pdf_file = io.BytesIO(file_content)
             reader = PdfReader(pdf_file)
-            
+
             full_text = ""
             page_texts = []
-            
-            # 提取每页文本
+
             for page_num, page in enumerate(reader.pages):
                 text = page.extract_text()
                 if text:
@@ -247,26 +240,23 @@ class DocumentProcessor:
                         "text": text.strip()
                     })
                     full_text += f"\n\n--- Page {page_num + 1} ---\n\n" + text
-            
-            # 使用 RecursiveCharacterTextSplitter 进行分块
+
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=settings.RAG_CHUNK_SIZE,
                 chunk_overlap=settings.RAG_CHUNK_OVERLAP,
                 separators=["\n\n", "\n", "。", "！", "？", " ", ""]
             )
-            
+
             chunks = text_splitter.split_text(full_text)
-            
-            # 构建文档块列表
+
             documents = []
             for idx, chunk in enumerate(chunks):
-                # 找到该 chunk 对应的页码
                 page_num = 1
                 for page_text in page_texts:
                     if page_text["text"] in chunk or chunk in page_text["text"]:
                         page_num = page_text["page"]
                         break
-                
+
                 documents.append({
                     "content": chunk,
                     "metadata": {
@@ -277,33 +267,31 @@ class DocumentProcessor:
                         "page": page_num
                     }
                 })
-            
+
             logger.info(f"Processed PDF {filename}: {len(chunks)} chunks extracted")
             return documents
-            
+
         except Exception as e:
             logger.error(f"Failed to process PDF {filename}: {str(e)}")
             raise
-    
+
     @staticmethod
     def process_markdown(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
         """
-        处理 Markdown 文件，提取文本并分块
-        
+        Process Markdown file, extract text and split into chunks
+
         Args:
-            file_content: MD 文件内容 (bytes)
-            filename: 文件名
-            
+            file_content: MD file content (bytes)
+            filename: File name
+
         Returns:
-            分块后的文档列表
+            List of processed document chunks
         """
         try:
             from langchain.text_splitter import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-            
-            # 解码文件内容
+
             text = file_content.decode('utf-8')
-            
-            # 使用 MarkdownHeaderTextSplitter 按标题结构分割
+
             markdown_splitter = MarkdownHeaderTextSplitter(
                 headers_to_split_on=[
                     ("#", "H1"),
@@ -312,22 +300,20 @@ class DocumentProcessor:
                     ("####", "H4"),
                 ]
             )
-            
+
             md_header_splits = markdown_splitter.split_text(text)
-            
-            # 如果按标题分割的块太大，再使用 RecursiveCharacterTextSplitter 细分
+
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=settings.RAG_CHUNK_SIZE,
                 chunk_overlap=settings.RAG_CHUNK_OVERLAP,
                 separators=["\n\n", "\n", "。", "！", "？", " ", ""]
             )
-            
+
             documents = []
             for idx, split in enumerate(md_header_splits):
                 content = split.page_content
                 metadata = split.metadata
-                
-                # 如果内容太长，进一步分割
+
                 if len(content) > settings.RAG_CHUNK_SIZE:
                     sub_chunks = text_splitter.split_text(content)
                     for sub_idx, sub_chunk in enumerate(sub_chunks):
@@ -352,39 +338,39 @@ class DocumentProcessor:
                             "headers": metadata
                         }
                     })
-            
+
             logger.info(f"Processed MD {filename}: {len(documents)} chunks extracted")
             return documents
-            
+
         except Exception as e:
             logger.error(f"Failed to process MD {filename}: {str(e)}")
             raise
-    
+
     @staticmethod
     def process_text(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
         """
-        处理纯文本文件
-        
+        Process plain text file
+
         Args:
-            file_content: 文件内容 (bytes)
-            filename: 文件名
-            
+            file_content: File content (bytes)
+            filename: File name
+
         Returns:
-            分块后的文档列表
+            List of processed document chunks
         """
         from langchain.text_splitter import RecursiveCharacterTextSplitter
-        
+
         try:
             text = file_content.decode('utf-8')
-            
+
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=settings.RAG_CHUNK_SIZE,
                 chunk_overlap=settings.RAG_CHUNK_OVERLAP,
                 separators=["\n\n", "\n", "。", "！", "？", " ", ""]
             )
-            
+
             chunks = text_splitter.split_text(text)
-            
+
             documents = []
             for idx, chunk in enumerate(chunks):
                 documents.append({
@@ -396,44 +382,41 @@ class DocumentProcessor:
                         "total_chunks": len(chunks)
                     }
                 })
-            
+
             logger.info(f"Processed TXT {filename}: {len(documents)} chunks extracted")
             return documents
-            
+
         except Exception as e:
             logger.error(f"Failed to process TXT {filename}: {str(e)}")
             raise
 
 
 class RAGService:
-    """RAG 知识库检索服务主类"""
-    
+    """Main RAG knowledge base retrieval service class"""
+
     def __init__(self):
         self.embedding_service = EmbeddingService()
         self.document_processor = DocumentProcessor()
         self._qdrant_client = None
         self._initialized = False
-    
+
     async def initialize(self):
-        """初始化 Qdrant 连接和集合"""
+        """Initialize Qdrant connection and collection"""
         if self._initialized:
             return
-        
+
         try:
-            # 连接 Qdrant
             logger.info(f"Connecting to Qdrant at {settings.QDRANT_HOST}:{settings.QDRANT_PORT}")
-            # 使用 url 参数连接到 Qdrant REST API
             self._qdrant_client = QdrantClient(
                 url=f"http://{settings.QDRANT_HOST}:{settings.QDRANT_PORT}",
                 timeout=30
             )
-            
-            # 测试连接
+
             collections = self._qdrant_client.get_collections()
             logger.info(f"Connected to Qdrant, available collections: {[c.name for c in collections.collections]}")
-            
+
             collection_names = [c.name for c in collections.collections]
-            
+
             if settings.QDRANT_COLLECTION not in collection_names:
                 self._qdrant_client.create_collection(
                     collection_name=settings.QDRANT_COLLECTION,
@@ -443,20 +426,20 @@ class RAGService:
                     )
                 )
                 logger.info(f"Created Qdrant collection: {settings.QDRANT_COLLECTION}")
-            
+
             self._initialized = True
             logger.info("RAG Service initialized successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize RAG service: {str(e)}")
             self._qdrant_client = None
             raise
-    
+
     async def _ensure_initialized(self):
-        """确保服务已初始化"""
+        """Ensure service is initialized"""
         if not self._initialized:
             await self.initialize()
-    
+
     async def add_documents(
         self,
         file_content: bytes,
@@ -465,24 +448,23 @@ class RAGService:
         metadata: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
-        向知识库添加文档
-        
+        Add document to knowledge base
+
         Args:
-            file_content: 文件内容 (bytes)
-            filename: 文件名
-            collection_name: 集合名称 (可选)
-            metadata: 额外元数据
-            
+            file_content: File content (bytes)
+            filename: File name
+            collection_name: Collection name (optional)
+            metadata: Additional metadata
+
         Returns:
-            添加结果
+            Add result
         """
         await self._ensure_initialized()
-        
+
         collection_name = collection_name or settings.QDRANT_COLLECTION
-        
-        # 根据文件类型处理
+
         file_ext = filename.lower().split('.')[-1] if '.' in filename else ''
-        
+
         if file_ext == 'pdf':
             documents = self.document_processor.process_pdf(file_content, filename)
         elif file_ext in ['md', 'markdown']:
@@ -491,45 +473,30 @@ class RAGService:
             documents = self.document_processor.process_text(file_content, filename)
         else:
             raise ValueError(f"Unsupported file type: {file_ext}")
-        
-        # 添加文档元数据
+
         if metadata:
             for doc in documents:
                 doc["metadata"].update(metadata)
-        
-        # 使用文件名生成稳定的 doc_id，便于后续更新和去重
+
         doc_id = hashlib.md5(filename.encode()).hexdigest()[:16]
 
-        # 提取文本内容进行向量化
         texts = [doc["content"] for doc in documents]
 
-        # 检查提取的文本
         if not texts:
             raise ValueError(f"No text content extracted from file: {filename}")
 
-        # 过滤空内容
         texts = [t for t in texts if t and t.strip()]
         if not texts:
             raise ValueError(f"All document chunks are empty after processing: {filename}")
 
         logger.info(f"Processing document: {filename}, chunks: {len(texts)}")
 
-        # 向量化
         embeddings = await self.embedding_service.embed_texts(texts)
 
-        # 构建向量点 - 使用 UUID 确保 point_id 唯一
         points = []
         for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
-            # 使用 UUID 作为 point_id，确保全局唯一
             point_id = str(uuid.uuid4())
 
-        # 构建向量点 - 使用 UUID 确保 point_id 唯一
-        points = []
-        for idx, (doc, embedding) in enumerate(zip(documents, embeddings)):
-            # 使用 UUID 作为 point_id，确保全局唯一，不会覆盖已有文档
-            point_id = str(uuid.uuid4())
-            
-            # 合并所有元数据
             point_metadata = {
                 "document_id": doc_id,
                 "document_name": filename,
@@ -540,11 +507,10 @@ class RAGService:
                 "content": doc["content"],
                 **doc["metadata"]
             }
-            
-            # 添加额外元数据
+
             if metadata:
                 point_metadata.update(metadata)
-            
+
             points.append(
                 PointStruct(
                     id=point_id,
@@ -552,14 +518,12 @@ class RAGService:
                     payload=point_metadata
                 )
             )
-        
-        # 批量插入向量
+
         self._qdrant_client.upsert(
             collection_name=collection_name,
             points=points
         )
-        
-        # 存储文档元数据到 MongoDB
+
         await self._save_document_metadata(
             doc_id=doc_id,
             filename=filename,
@@ -567,16 +531,16 @@ class RAGService:
             chunk_count=len(documents),
             metadata=metadata or {}
         )
-        
+
         logger.info(f"Added document {filename} with {len(documents)} chunks to knowledge base")
-        
+
         return {
             "document_id": doc_id,
             "filename": filename,
             "chunk_count": len(documents),
             "status": "success"
         }
-    
+
     async def _save_document_metadata(
         self,
         doc_id: str,
@@ -585,15 +549,13 @@ class RAGService:
         chunk_count: int,
         metadata: Dict[str, Any]
     ):
-        """保存文档元数据到 MongoDB"""
+        """Save document metadata to MongoDB"""
         try:
             collection = mongo_db["rag_documents"]
-            
-            # 检查文档是否已存在
+
             existing_doc = collection.find_one({"_id": doc_id})
-            
+
             if existing_doc:
-                # 文档已存在，更新状态为 active
                 collection.update_one(
                     {"_id": doc_id},
                     {"$set": {
@@ -607,7 +569,6 @@ class RAGService:
                 )
                 logger.info(f"Updated document metadata: {doc_id}")
             else:
-                # 新文档，插入
                 document = {
                     "_id": doc_id,
                     "filename": filename,
@@ -620,10 +581,10 @@ class RAGService:
                 }
                 collection.insert_one(document)
                 logger.info(f"Saved document metadata: {doc_id}")
-            
+
         except Exception as e:
             logger.error(f"Failed to save document metadata: {str(e)}")
-    
+
     async def retrieve(
         self,
         query: str,
@@ -633,35 +594,31 @@ class RAGService:
         score_threshold: float = 0.5
     ) -> List[KnowledgeChunk]:
         """
-        从知识库检索相关文档
-        
+        Retrieve relevant documents from knowledge base
+
         Args:
-            query: 用户查询
-            top_k: 返回结果数量
-            collection_name: 集合名称
-            filter_criteria: 过滤条件
-            score_threshold: 分数阈值
-            
+            query: User query
+            top_k: Number of results to return
+            collection_name: Collection name
+            filter_criteria: Filter conditions
+            score_threshold: Score threshold
+
         Returns:
-            知识库检索结果列表
+            List of knowledge base retrieval results
         """
         await self._ensure_initialized()
-        
-        # 检查客户端是否有效
+
         if not self._qdrant_client:
             logger.warning("Qdrant client is not initialized")
             return []
-        
-        # 调试：检查客户端类型和方法
+
         logger.debug(f"Qdrant client type: {type(self._qdrant_client)}")
         logger.debug(f"Qdrant client has search: {hasattr(self._qdrant_client, 'search')}")
-        
+
         collection_name = collection_name or settings.QDRANT_COLLECTION
-        
-        # 向量化查询
+
         query_embedding = await self.embedding_service.embed_query(query)
-        
-        # 构建过滤条件
+
         qdrant_filter = None
         if filter_criteria:
             conditions = []
@@ -675,8 +632,7 @@ class RAGService:
             if conditions:
                 from qdrant_client.models import Filter
                 qdrant_filter = Filter(must=conditions)
-        
-        # 搜索
+
         try:
             search_results = self._qdrant_client.search(
                 collection_name=collection_name,
@@ -688,8 +644,7 @@ class RAGService:
         except Exception as e:
             logger.error(f"Qdrant search failed: {str(e)}")
             return []
-        
-        # 转换为 KnowledgeChunk 对象
+
         chunks = []
         for result in search_results:
             chunk = KnowledgeChunk(
@@ -702,32 +657,31 @@ class RAGService:
                 document_type=result.payload.get("document_type", "")
             )
             chunks.append(chunk)
-        
+
         logger.info(f"Retrieved {len(chunks)} chunks from knowledge base for query: {query[:50]}...")
-        
+
         return chunks
-    
+
     async def delete_document(
         self,
         doc_id: str,
         collection_name: str = None
     ) -> bool:
         """
-        从知识库删除文档
-        
+        Delete document from knowledge base
+
         Args:
-            doc_id: 文档 ID
-            collection_name: 集合名称
-            
+            doc_id: Document ID
+            collection_name: Collection name
+
         Returns:
-            是否删除成功
+            Whether deletion was successful
         """
         await self._ensure_initialized()
-        
+
         collection_name = collection_name or settings.QDRANT_COLLECTION
-        
+
         try:
-            # 删除向量 - 使用正确的 Qdrant API 格式
             from qdrant_client.models import Filter, FieldCondition, MatchValue
 
             self._qdrant_client.delete(
@@ -741,43 +695,42 @@ class RAGService:
                     ]
                 )
             )
-            
-            # 更新 MongoDB 中的文档状态
+
             collection = mongo_db["rag_documents"]
             collection.update_one(
                 {"_id": doc_id},
                 {"$set": {"status": "deleted", "updated_at": datetime.now()}}
             )
-            
+
             logger.info(f"Deleted document {doc_id} from knowledge base")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to delete document {doc_id}: {str(e)}")
             return False
-    
+
     async def list_documents(
         self,
         collection_name: str = None,
         status: str = "active"
     ) -> List[Dict[str, Any]]:
         """
-        列出知识库中的文档
-        
+        List documents in knowledge base
+
         Args:
-            collection_name: 集合名称
-            status: 文档状态过滤
-            
+            collection_name: Collection name
+            status: Document status filter
+
         Returns:
-            文档列表
+            List of documents
         """
         try:
             collection = mongo_db["rag_documents"]
-            
+
             query = {"status": status} if status else {}
-            
+
             cursor = collection.find(query).sort("created_at", -1)
-            
+
             documents = []
             for doc in cursor:
                 documents.append({
@@ -790,33 +743,33 @@ class RAGService:
                     "created_at": doc["created_at"].isoformat() if doc.get("created_at") else None,
                     "updated_at": doc["updated_at"].isoformat() if doc.get("updated_at") else None
                 })
-            
+
             return documents
-            
+
         except Exception as e:
             logger.error(f"Failed to list documents: {str(e)}")
             return []
-    
+
     async def get_document_info(
         self,
         doc_id: str
     ) -> Optional[Dict[str, Any]]:
         """
-        获取文档详细信息
-        
+        Get detailed document information
+
         Args:
-            doc_id: 文档 ID
-            
+            doc_id: Document ID
+
         Returns:
-            文档信息
+            Document information
         """
         try:
             collection = mongo_db["rag_documents"]
             doc = collection.find_one({"_id": doc_id})
-            
+
             if not doc:
                 return None
-            
+
             return {
                 "document_id": str(doc["_id"]),
                 "filename": doc["filename"],
@@ -827,11 +780,11 @@ class RAGService:
                 "created_at": doc["created_at"].isoformat() if doc.get("created_at") else None,
                 "updated_at": doc["updated_at"].isoformat() if doc.get("updated_at") else None
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get document info: {str(e)}")
             return None
-    
+
     async def search_with_hybrid(
         self,
         query: str,
@@ -840,28 +793,25 @@ class RAGService:
         knowledge_weight: float = 0.5
     ) -> Dict[str, Any]:
         """
-        混合搜索 - 结合知识库和网络搜索结果
-        
+        Hybrid search combining knowledge base and web search results
+
         Args:
-            query: 用户查询
-            web_results: 网络搜索结果
-            top_k: 知识库返回数量
-            knowledge_weight: 知识库结果权重
-            
+            query: User query
+            web_results: Web search results
+            top_k: Number of knowledge base results
+            knowledge_weight: Weight for knowledge base results
+
         Returns:
-            混合搜索结果
+            Hybrid search results
         """
-        # 1. 知识库检索
         knowledge_chunks = await self.retrieve(query, top_k=top_k)
-        
-        # 2. 整理结果
+
         result = {
             "knowledge": [],
             "web": [],
             "combined_context": ""
         }
-        
-        # 添加知识库结果
+
         for idx, chunk in enumerate(knowledge_chunks):
             result["knowledge"].append({
                 "index": idx,
@@ -871,8 +821,7 @@ class RAGService:
                 "document_type": chunk.document_type,
                 "type": "knowledge"
             })
-        
-        # 添加网络结果
+
         if web_results:
             for idx, web_result in enumerate(web_results):
                 result["web"].append({
@@ -884,24 +833,20 @@ class RAGService:
                     "score": web_result.get("score", 0),
                     "type": "online"
                 })
-        
-        # 3. 构建混合上下文 (优先使用 knowledge 数据)
+
         context_parts = []
-        
-        # 知识库内容优先
+
         for kb in result["knowledge"]:
             context_part = f'<content index="{kb["index"]}" type="knowledge" source="knowledge_base" document="{kb["document_name"]}">\n{kb["content"]}\n</content>'
             context_parts.append(context_part)
-        
-        # 网络内容
+
         for web in result["web"]:
             context_part = f'<content index="{len(result["knowledge"]) + web["index"]}" type="online" source="web" url="{web["url"]}">\n{web.get("raw_content", web.get("content", ""))}\n</content>'
             context_parts.append(context_part)
-        
+
         result["combined_context"] = "\n".join(context_parts)
-        
+
         return result
 
 
-# 全局实例
 rag_service = RAGService()

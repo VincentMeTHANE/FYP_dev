@@ -1,10 +1,10 @@
 """
-报告管理API路由模块
+Report Management API Router Module
 """
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query,Depends,Request
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from models.mongo_models import (
     ReportCreateRequest, ReportResponse, ReportListResponse, ReportLockRequest
 )
@@ -21,30 +21,29 @@ router = APIRouter()
 @router.post("/create", response_model=Result)
 async def create_report(request: Request):
     """
-    创建新报告
+    Create a new report
         
     Returns:
-        dict: 包含报告ID的响应
+        dict: Response containing report_id
     """
-    # 移除认证，使用默认用户和租户ID
     user_id = "default_user"
     tenant_id = "1"
 
     logger.info(f"user_id: {user_id}, tenant_id: {tenant_id}")
     report_id = report_service.create_report(user_id, tenant_id)
 
-    return Result.success(report_id,"报告创建成功")
+    return Result.success(report_id, "Report created successfully")
 
 @router.get("/detail/{report_id}", response_model=Result)
 async def get_report_detail(report_id: str):
     """
-    获取报告详情
+    Get report details
     
     Args:
-        report_id: 报告ID
+        report_id: Report ID
         
     Returns:
-        ReportResponse: 报告详情
+        ReportResponse: Report details
     """
     try:
         report = report_service.get_report_response(report_id)
@@ -55,26 +54,26 @@ async def get_report_detail(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取报告详情失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取报告详情失败: {str(e)}")
+        logger.error(f"Failed to get report details: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get report details: {str(e)}")
 
 
 @router.get("/list", response_model=Result)
 async def list_reports(
-    page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(20, ge=1, le=100, description="每页大小，最大100"),
-    status: Optional[str] = Query(None, description="状态过滤")
+    page: int = Query(1, ge=1, description="Page number, starting from 1"),
+    page_size: int = Query(20, ge=1, le=100, description="Page size, maximum 100"),
+    status: Optional[str] = Query(None, description="Status filter")
 ):
     """
-    分页查询报告列表
+    Paginated report list query
     
     Args:
-        page: 页码
-        page_size: 每页大小
-        status: 状态过滤
+        page: Page number
+        page_size: Page size
+        status: Status filter
         
     Returns:
-        ReportListResponse: 分页报告列表
+        ReportListResponse: Paginated report list
     """
     try:
         data= report_service.list_reports(
@@ -85,27 +84,26 @@ async def list_reports(
         return Result.success(data)
         
     except Exception as e:
-        logger.error(f"查询报告列表失败: {e}")
-        raise HTTPException(status_code=500, detail=f"查询报告列表失败: {str(e)}")
+        logger.error(f"Failed to query report list: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to query report list: {str(e)}")
 
 
 @router.get("/history", response_model=Result)
 async def get_reports_history(
-    page: int = Query(1, ge=1, description="页码，从1开始"),
-    page_size: int = Query(10, ge=1, le=50, description="每页大小，最大50")
+    page: int = Query(1, ge=1, description="Page number, starting from 1"),
+    page_size: int = Query(10, ge=1, le=50, description="Page size, maximum 50")
 ):
     """
-    获取报告历史记录（按创建时间倒序）
+    Get report history (sorted by creation time descending)
     
     Args:
-        page: 页码
-        page_size: 每页大小
+        page: Page number
+        page_size: Page size
         
     Returns:
-        ReportListResponse: 历史记录列表
+        ReportListResponse: History list
     """
     try:
-        # 移除认证，使用默认用户和租户ID
         user_id = "default_user"
         tenant_id = "1"
 
@@ -119,20 +117,20 @@ async def get_reports_history(
         return Result.success(data)
         
     except Exception as e:
-        logger.error(f"获取报告历史失败: {e}")
-        raise ValueError(f"获取报告历史失败: {str(e)}")
+        logger.error(f"Failed to get report history: {e}")
+        raise ValueError(f"Failed to get report history: {str(e)}")
 
 
 @router.get("/progress/{report_id}", response_model=Result)
 async def get_report_progress(report_id: str):
     """
-    获取报告执行进度
+    Get report execution progress
     
     Args:
-        report_id: 报告ID
+        report_id: Report ID
         
     Returns:
-        dict: 进度信息
+        dict: Progress information
     """
     try:
         report = report_service.get_report(report_id)
@@ -173,21 +171,21 @@ async def get_report_progress(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取报告进度失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取报告进度失败: {str(e)}")
+        logger.error(f"Failed to get report progress: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get report progress: {str(e)}")
 
 
 @router.get("/step-result/{report_id}/{step_name}", response_model=Result)
 async def get_step_result(report_id: str, step_name: str):
     """
-    获取指定步骤的执行结果
+    Get execution result for specified step
 
     Args:
-        report_id: 报告ID
-        step_name: 步骤名称
+        report_id: Report ID
+        step_name: Step name
 
     Returns:
-        dict: 步骤结果
+        dict: Step result
     """
     try:
         report = report_service.get_report(report_id)
@@ -195,7 +193,6 @@ async def get_step_result(report_id: str, step_name: str):
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_NOT_EXIST),
                            message=ErrorCode.get_message(ErrorCode.REPORT_NOT_EXIST))
 
-        # 获取指定步骤
         step_mapping = {
             "ask_questions": report.steps.ask_questions,
             "plan": report.steps.plan,
@@ -226,26 +223,25 @@ async def get_step_result(report_id: str, step_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取步骤结果失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取步骤结果失败: {str(e)}")
+        logger.error(f"Failed to get step result: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get step result: {str(e)}")
 
 
 @router.get("/token-stats/{report_id}", response_model=Result)
 async def get_token_stats(report_id: str):
     """
-    获取报告的Token统计信息
+    Get token statistics for report
 
     Args:
-        report_id: 报告ID
+        report_id: Report ID
 
     Returns:
-        dict: Token统计信息
+        dict: Token statistics
     """
     try:
         from bson import ObjectId
         from utils.database import mongo_db
 
-        # 从各个步骤记录集合中汇总token使用情况
         collections_to_check = [
             "report_ask_questions",
             "report_plan",
@@ -291,71 +287,67 @@ async def get_token_stats(report_id: str):
         return Result.success(data)
 
     except Exception as e:
-        logger.error(f"获取Token统计失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取Token统计失败: {str(e)}")
+        logger.error(f"Failed to get token statistics: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get token statistics: {str(e)}")
 
 
 @router.post("/lock", response_model=Result)
 async def lock_report(request: ReportLockRequest):
     """
-    锁定或解锁报告
+    Lock or unlock report
     
     Args:
-        request: 包含report_id和locked状态的请求
+        request: Request containing report_id and locked status
         
     Returns:
-        dict: 操作结果
+        dict: Operation result
     """
     try:
-        # 检查报告是否存在
         report = report_service.get_report(request.report_id)
         if not report:
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_NOT_EXIST),
                            message=ErrorCode.get_message(ErrorCode.REPORT_NOT_EXIST))
 
-        # 更新锁定状态
         success = report_service.lock_report(request.report_id, request.locked)
         
         if success:
-            action = "锁定" if request.locked else "解锁"
-            return Result.success(True, f"报告{action}成功")
+            action = "Lock" if request.locked else "Unlock"
+            return Result.success(True, f"Report {action.lower()}ed successfully")
         else:
-            action = "锁定" if request.locked else "解锁"
+            action = "lock" if request.locked else "unlock"
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_UPDATE_FAILED),
-                           message=f"报告{action}失败")
+                           message=f"Failed to {action} report")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"锁定/解锁报告失败: {e}")
-        raise HTTPException(status_code=500, detail=f"锁定/解锁报告失败: {str(e)}")
+        logger.error(f"Failed to lock/unlock report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to lock/unlock report: {str(e)}")
 
 
 @router.delete("/{report_id}", response_model=Result)
 async def delete_report(report_id: str):
     """
-    删除报告
+    Delete report
     
     Args:
-        report_id: 报告ID
+        report_id: Report ID
         
     Returns:
-        dict: 删除结果
+        dict: Delete result
     """
     try:
-        # 检查报告是否存在
         report = report_service.get_report(report_id)
         if not report:
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_NOT_EXIST),
                            message=ErrorCode.get_message(ErrorCode.REPORT_NOT_EXIST))
 
-        # 删除报告
         from bson import ObjectId
         from utils.database import mongo_db
         result = mongo_db.reports.delete_one({"_id": ObjectId(report_id)})
         
         if result.deleted_count > 0:
-            return Result.success(True, "报告删除成功")
+            return Result.success(True, "Report deleted successfully")
         else:
             raise BizError(code=ErrorCode.get_code(ErrorCode.REPORT_DELETE_FAILED),
                            message=ErrorCode.get_message(ErrorCode.REPORT_DELETE_FAILED))
@@ -363,5 +355,5 @@ async def delete_report(report_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除报告失败: {e}")
-        raise HTTPException(status_code=500, detail=f"删除报告失败: {str(e)}")
+        logger.error(f"Failed to delete report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete report: {str(e)}")

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-深度研究 搜索总结API路由模块
+Deep Research - Search Summary API Router Module
 """
 
 import logging
 import datetime
 import asyncio
-from fastapi import APIRouter, HTTPException  # type: ignore
+from fastapi import APIRouter, HTTPException
 from models.models import LLMMessage, LLMRequest, LLMMessage1, LLMMessageSearchSummary
 from services.llm_service import llm_service
 from services.mongo_api_service_manager import mongo_api_service_manager
@@ -28,27 +28,22 @@ def _get_search_data_and_build_context(task_id: str):
     try:
         collection = mongo_db.search_results
 
-        # 查询数据
         results = collection.find({"task_id": task_id})
-        results_list = list(results)  # 转换为列表
+        results_list = list(results)
         if not results_list:
-            logger.warning(f"未找到task_id为 {task_id} 的数据")
+            logger.warning(f"No data found for task_id: {task_id}")
             return [], [], ""
 
-        # 定义空数组 - 区分知识库和网络来源
         images = []
-        knowledge_sources = []  # 知识库来源
-        online_sources = []     # 网络来源
+        knowledge_sources = []
+        online_sources = []
 
-        # 遍历 results_list，区分不同来源
         for doc in results_list:
             doc_type = doc.get("type", "online")
 
-            # 合并 images 数组（仅从网络来源获取图片）
             if doc_type == "online" and "images" in doc and isinstance(doc["images"], list):
                 images.extend(doc["images"])
 
-            # 构建来源数据
             source = {
                 "title": doc.get("title", ""),
                 "url": doc.get("url", ""),
@@ -65,13 +60,10 @@ def _get_search_data_and_build_context(task_id: str):
             else:
                 online_sources.append(source)
 
-        # 合并所有 sources 用于返回
         all_sources = knowledge_sources + online_sources
 
-        # 构建 context - 知识库内容优先
         context_parts = []
 
-        # 先添加知识库内容
         for source in knowledge_sources:
             raw_content = source.get("raw_content", "")
             if raw_content is None:
@@ -82,7 +74,6 @@ def _get_search_data_and_build_context(task_id: str):
                 context_part = f'<content index="{source.get("result_index", "")}" type="knowledge" source="knowledge_base" document="{source.get("title", "")}">\n{raw_content}\n</content>'
                 context_parts.append(context_part)
 
-        # 再添加网络内容
         for source in online_sources:
             raw_content = source.get("raw_content", "")
             if raw_content is None:
@@ -95,12 +86,12 @@ def _get_search_data_and_build_context(task_id: str):
 
         context = "\n".join(context_parts)
 
-        logger.info(f"成功构建context，包含 {len(knowledge_sources)} 个知识库源, {len(online_sources)} 个网络源")
+        logger.info(f"Successfully built context with {len(knowledge_sources)} knowledge sources and {len(online_sources)} online sources")
         return images, all_sources, context
 
     except Exception as e:
-        logger.error(f"查询搜索数据失败: {str(e)}")
-        raise ValueError(f"查询搜索数据失败: {str(e)}")
+        logger.error(f"Failed to query search data: {str(e)}")
+        raise ValueError(f"Failed to query search data: {str(e)}")
 
 
 @router.post("/completion", response_model=Result)
@@ -108,16 +99,15 @@ async def chat_completion(
     dto: LLMMessageSearchSummary
 ):
     """
-    搜索总结 - completion模式，需要有效的report_id
+    Search summary - completion mode, requires valid report_id
     """
     start_time = datetime.datetime.now()
     
     try:
- 
+
         if not dto.task_id:
-            raise HTTPException(status_code=400, detail="task_id不能为空")
+            raise HTTPException(status_code=400, detail="task_id cannot be empty")
         
-        # 获取任务信息
         task_info = await get_task_info(dto.task_id)
         logger.info(f"task_info: {task_info}")
         query = task_info["query"]
@@ -125,13 +115,11 @@ async def chat_completion(
         report_id = task_info["report_id"]
         split_id = task_info["split_id"]
         
-        # 3. 从数据库查询数据并构建context
         if not dto.task_id:
             raise BizError(code=ErrorCode.get_code(ErrorCode.TASK_ID_NOT_EMPTY),
                            message=ErrorCode.get_message(ErrorCode.TASK_ID_NOT_EMPTY))
 
         images, sources, context = _get_search_data_and_build_context(dto.task_id)
-        # 4. 开始步骤
         report_service.start_step(report_id, "search_summary")
 
         prompt_used = prompt(query, research_goal, context)
@@ -140,11 +128,10 @@ async def chat_completion(
         async def llm_service_call():
             return await llm_service.completion(message=prompt_used,model="search_summary")
         
-        # 5. 使用统一的MongoDB API服务管理器
         result = await mongo_api_service_manager.execute_completion_api(
             query=query,
             query_type="search_summary",
-            title_prefix="搜索总结",
+            title_prefix="Search Summary",
             service_call=llm_service_call,
             additional_data={
                 "prompt_used": prompt_used,
@@ -155,7 +142,6 @@ async def chat_completion(
             report_id=report_id
         )
         
-        # 4. 完成步骤
         end_time = datetime.datetime.now()
         execution_time = (end_time - start_time).total_seconds()
         
@@ -165,14 +151,10 @@ async def chat_completion(
             execution_time=execution_time
         )
 
-        # 5. 插入 report_search_summary数据 插入前先删除旧数据
         mongo_api_service_manager.delete_search_summary_by_task_id(dto.task_id)
         step_record_service.create_search_summary_record(report_id,query,dto.task_id,split_id,result["llm_response"])
 
-        # 6. 更新serp_task状态为completed
-        # mongo_api_service_manager.update_serp_task_search_state(dto.task_id, "completed")
         if "llm_response" in result and isinstance(result["llm_response"], dict):
-            # 检查是否有错误信息
             if "id" in result["llm_response"] and "error" in str(result["llm_response"]["id"]).lower():
                 mongo_api_service_manager.update_serp_task_search_state(dto.task_id, "failed")
             else:
@@ -183,7 +165,6 @@ async def chat_completion(
         return Result.success(result["llm_response"])
         
     except Exception as e:
-        # 5. 标记步骤失败
         if 'report_id' in locals():
             end_time = datetime.datetime.now()
             execution_time = (end_time - start_time).total_seconds()
@@ -193,12 +174,11 @@ async def chat_completion(
                 error_message=str(e),
                 execution_time=execution_time
             )
-        # 更新serp_task状态为failed
         mongo_api_service_manager.update_serp_task_search_state(dto.task_id, "failed")
         
-        logger.error(f"搜索总结API失败: {str(e)}")
+        logger.error(f"Search summary API failed: {str(e)}")
         traceback.print_exc()
-        raise ValueError(f"搜索总结失败: {str(e)}")
+        raise ValueError(f"Search summary failed: {str(e)}")
 
 
 @router.post("/stream")
@@ -206,50 +186,37 @@ async def chat_stream(
     dto: LLMMessageSearchSummary
 ):
     """
-    流式搜索总结 - 需要有效的report_id
+    Streaming search summary - requires valid report_id
     """
     
     start_time = datetime.datetime.now()
     
     try:
-        # 1. 验证report_id
-        # if not dto.report_id:
-        #     raise HTTPException(status_code=400, detail="搜索总结需要有效的report_id")
-        
         report_id = dto.report_id
-        # if not report_service.get_report(report_id):
-        #     raise HTTPException(status_code=404, detail="指定的报告ID不存在")
         
-        # 2. 验证task_id并获取任务信息
         if not dto.task_id:
             raise BizError(code=ErrorCode.get_code(ErrorCode.TASK_ID_NOT_EMPTY),
                            message=ErrorCode.get_message(ErrorCode.TASK_ID_NOT_EMPTY))
 
-        # 获取任务信息
         task_info = await get_task_info(dto.task_id)
         query = task_info["query"]
         research_goal = task_info["research_goal"]
-        # 获取split_id
         split_id = task_info["split_id"]
         
-        # 3. 从数据库查询数据并构建context
         if not dto.search_id:
             raise BizError(code=ErrorCode.get_code(ErrorCode.SEARCH_ID_NOT_EMPTY),
                            message=ErrorCode.get_message(ErrorCode.SEARCH_ID_NOT_EMPTY))
 
         images, sources, context = _get_search_data_and_build_context(dto.search_id)
         
-        # 4. 开始步骤
         report_service.start_step(report_id, "search_summary")
         
-        # 异步更新完成状态的任务
         async def update_completion_status():
-            await asyncio.sleep(3)  # 给流式处理一些时间
+            await asyncio.sleep(3)
             try:
                 end_time = datetime.datetime.now()
                 execution_time = (end_time - start_time).total_seconds()
                 
-                # 检查步骤是否还在处理中，如果是则标记为完成
                 current_report = report_service.get_report(report_id)
                 if current_report and current_report.steps.search_summary.status == "processing":
                     report_service.complete_step(
@@ -257,8 +224,7 @@ async def chat_stream(
                         execution_time=execution_time
                     )
             except Exception as e:
-                logger.error(f"更新流式处理状态失败: {str(e)}")
-                # 如果更新失败，标记为失败状态
+                logger.error(f"Failed to update streaming status: {str(e)}")
                 end_time = datetime.datetime.now()
                 execution_time = (end_time - start_time).total_seconds()
                 report_service.fail_step(
@@ -267,20 +233,18 @@ async def chat_stream(
                     execution_time=execution_time
                 )
         
-        # 启动后台任务
         asyncio.create_task(update_completion_status())
         
         return await mongo_api_service_manager.execute_stream_api(
             query=query,
             query_type="search_summary",
-            title_prefix="搜索总结",
+            title_prefix="Search Summary",
             prompt_builder=prompt(query, research_goal, context),
             report_id=report_id,
             model="search_summary"
         )
         
     except Exception as e:
-        # 标记步骤失败
         if 'report_id' in locals():
             end_time = datetime.datetime.now()
             execution_time = (end_time - start_time).total_seconds()
@@ -291,16 +255,16 @@ async def chat_stream(
                 execution_time=execution_time
             )
         
-        logger.error(f"流式搜索总结API失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"流式搜索总结失败: {str(e)}")
+        logger.error(f"Streaming search summary API failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Streaming search summary failed: {str(e)}")
 
 
 @router.get("/detail/{report_id}", response_model=Result)
 async def get_detail(
-    report_id: str  # 改为字符串类型，支持ObjectId
+    report_id: str
 ):
     """
-    根据报告ID获取详细信息 - 直接返回LLM的完整数据
+    Get details by report_id - return LLM complete data directly
     """
     return Result.success(mongo_api_service_manager.get_detail_by_report_id(report_id))
 

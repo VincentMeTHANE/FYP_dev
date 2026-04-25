@@ -1,13 +1,13 @@
 """
-报告评估服务模块
-提供数据提取、Context Precision计算、G-Eval主题契合度评估、数据回写等功能
+Report Evaluation Service Module
+Provides data extraction, Context Precision calculation, G-Eval topic relevance evaluation, data writing and other functions
 
-评估指标包括：
-- Context Precision (基础)
-- Weighted Precision@K (位置加权)
-- NDCG@K (归一化折扣累积增益)
-- End-to-End RAG Precision (端到端评估)
-- 区分 RAG 和 Web 来源的评估
+Evaluation metrics include:
+- Context Precision (basic)
+- Weighted Precision@K (position weighted)
+- NDCG@K (Normalized Discounted Cumulative Gain)
+- End-to-End RAG Precision (end-to-end evaluation)
+- Separate evaluation for RAG and Web sources
 """
 
 import asyncio
@@ -24,11 +24,11 @@ from models.models import LLMRequest
 
 logger = logging.getLogger(__name__)
 
-# 评估模型 Temperature（优先使用配置文件的设置）
-EVALUATION_MODEL_TEMPERATURE = 0.2  # 服务内部默认值
+# Evaluation model temperature (prefer config file settings)
+EVALUATION_MODEL_TEMPERATURE = 0.2
 
-# ===== Context Precision 评估提示词（改进版 - 多维度评估）=====
-EVALUATION_SYSTEM_PROMPT = """您是一个专业的RAG评估专家。请从以下维度评估检索文本与查询的相关性：
+# ===== Context Precision Evaluation Prompts (improved version - multi-dimensional evaluation) =====
+EVALUATION_SYSTEM_PROMPT = """You are a professional RAG evaluation expert. Please evaluate the relevance of retrieved text to the query from the following dimensions:
 
 1. 主题匹配度 (0-1): 检索内容是否涉及查询的核心主题
 2. 信息有用性 (0-1): 是否包含回答查询所需的具体信息、事实或数据
@@ -48,8 +48,8 @@ EVALUATION_USER_PROMPT = """查询：{query}
 
 请判断该文本是否对回答查询有帮助？（Relevant / Irrelevant）"""
 
-# ===== 端到端 RAG 评估提示词（检查章节是否使用摘要知识）=====
-E2E_EVALUATION_SYSTEM_PROMPT = """您是一个专业的RAG系统评估专家。请评估章节内容是否与检索摘要主题相关。
+# ===== End-to-End RAG Evaluation Prompts (check if chapter uses summarized knowledge) =====
+E2E_EVALUATION_SYSTEM_PROMPT = """You are a professional RAG system evaluation expert. Please evaluate whether chapter content is related to the retrieved summary topic.
 
 评估标准：
 1. 主题相关性: 章节内容是否围绕摘要的主题展开
@@ -73,7 +73,7 @@ E2E_EVALUATION_USER_PROMPT = """【查询】{query}
 请判断：章节内容是否基于检索摘要生成/展开？（Used / Not Used）"""
 
 
-# ===== 辅助评估函数 =====
+# ===== Helper Evaluation Functions =====
 
 def calculate_weighted_precision(relevance_results: List[bool], k: int = 10) -> float:
     """
