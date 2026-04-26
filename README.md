@@ -14,29 +14,15 @@ A comprehensive deep research report generation system that automates the creati
 - [Running the Application](#running-the-application)
 - [Project Structure](#project-structure)
 - [API Endpoints](#api-endpoints)
-- [6-Step Workflow](#6-step-workflow)
+- [Main Workflow](#main-workflow)
 - [Dataset](#dataset)
 - [Tech Stack](#tech-stack)
-- [License](#license)
 
 ---
 
 ## Project Overview
 
 This system implements a 6-step automated workflow for generating comprehensive research reports. Users simply input a research topic, and the system automatically completes the entire process from question generation to final report delivery.
-
-### System Flow
-
-```mermaid
-graph TD
-    A[User Input Topic] --> B[Step 1: Question Generation]
-    B --> C[Step 2: Report Outline]
-    C --> D[Step 3: SERP Query Generation]
-    D --> E[Step 4: Web Search + RAG]
-    E --> F[Step 5: Search Summarization]
-    F --> G[Step 6: Final Report Generation]
-    G --> H[Export: PDF/Word]
-```
 
 ---
 
@@ -60,7 +46,6 @@ Before running this application, ensure the following services are installed and
 | Service | Version | Description | Default Port |
 |---------|---------|-------------|--------------|
 | Redis | - | Cache and session storage | 6379 |
-| MySQL | - | Relational data storage | 3306 |
 | MongoDB | - | Document storage | 27017 |
 | Qdrant | 1.7.0+ | Vector database | 6333 |
 | MinIO | - | Object storage (OSS) | 9000 |
@@ -117,13 +102,6 @@ REDIS_PORT = 6379
 REDIS_PASSWORD = "your_password"
 REDIS_DB = 14
 
-# MySQL Configuration
-MYSQL_HOST = "localhost"
-MYSQL_PORT = 3306
-MYSQL_USER = "root"
-MYSQL_PASSWORD = "your_password"
-MYSQL_DATABASE = "deep-research"
-
 # MongoDB Configuration
 MONGO_HOST = "localhost"
 MONGO_PORT = 27017
@@ -155,7 +133,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
+      '': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       }
@@ -264,53 +242,52 @@ FYP_dev/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/report/create` | Create new report |
-| GET | `/api/report/detail/{report_id}` | Get report details |
-| GET | `/api/report/list` | List reports (paginated) |
-| GET | `/api/report/history` | Get report history |
-| GET | `/api/report/progress/{report_id}` | Get execution progress |
-| GET | `/api/report/step-result/{report_id}/{step_name}` | Get step result |
-| GET | `/api/report/token-stats/{report_id}` | Get token statistics |
-| POST | `/api/report/lock` | Lock/unlock report |
-| DELETE | `/api/report/{report_id}` | Delete report |
+| POST | `/report/create` | Create new report |
+| GET | `/report/detail/{report_id}` | Get report details |
+| GET | `/report/list` | List reports (paginated) |
+| GET | `/report/history` | Get report history |
+| GET | `/report/progress/{report_id}` | Get execution progress |
+| GET | `/report/step-result/{report_id}/{step_name}` | Get step result |
+| GET | `/report/token-stats/{report_id}` | Get token statistics |
+| POST | `/report/lock` | Lock/unlock report |
+| DELETE | `/report/{report_id}` | Delete report |
 
-### 6-Step Workflow
+### Main Workflow
 
-| Step | Method | Endpoint | Description |
-|------|--------|----------|-------------|
-| 1 | POST | `/api/ask_questions/stream` | Generate research questions |
-| 2 | POST | `/api/plan/stream` | Generate report outline |
-| 2 | POST | `/api/plan/split/{report_id}` | Split outline into chapters |
-| 3 | POST | `/api/serp/stream` | Generate SERP queries |
-| 4 | POST | `/api/search/search` | Execute enhanced searches |
-| 5 | POST | `/api/summary/completion` | Summarize search results |
-| 6 | POST | `/api/final/stream` | Generate final report |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ask_questions/stream` | Generate research questions |
+| POST | `/plan/stream` | Generate report outline |
+| POST | `/plan/split/{report_id}` | Split outline into chapters |
+| POST | `/serp/stream` | Generate SERP queries |
+| POST | `/search/search` | Execute enhanced searches |
+| POST | `/summary/completion` | Summarize search results |
+| POST | `/final/stream` | Generate final report |
 
 ### Export
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/final/download/pdf/{report_id}` | Download as PDF |
-| GET | `/api/final/download/word/{report_id}` | Download as Word |
+| GET | `/final/download/pdf/{report_id}` | Download as PDF |
 
 ### Knowledge Base
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/knowledge/upload` | Upload document |
-| DELETE | `/api/knowledge/document/{document_id}` | Delete document |
-| GET | `/api/knowledge/documents` | List documents |
-| GET | `/api/knowledge/document/{document_id}` | Get document details |
-| POST | `/api/knowledge/search` | Search knowledge base |
-| GET | `/api/knowledge/stats` | Get statistics |
-| POST | `/api/knowledge/init` | Initialize knowledge base |
+| POST | `/knowledge/upload` | Upload document |
+| DELETE | `/knowledge/document/{document_id}` | Delete document |
+| GET | `/knowledge/documents` | List documents |
+| GET | `/knowledge/document/{document_id}` | Get document details |
+| POST | `/knowledge/search` | Search knowledge base |
+| GET | `/knowledge/stats` | Get statistics |
+| POST | `/knowledge/init` | Initialize knowledge base |
 
 ### Evaluation
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/evaluation/evaluate/{report_id}` | Trigger evaluation |
-| GET | `/api/evaluation/evaluation/{report_id}` | Get evaluation results |
+| POST | `/evaluation/evaluate/{report_id}` | Trigger evaluation |
+| GET | `/evaluation/evaluation/{report_id}` | Get evaluation results |
 
 ---
 
@@ -319,21 +296,21 @@ FYP_dev/
 ### Step 1: Question Generation
 Generate relevant research questions based on user input to enrich the report plan.
 
-**Endpoint**: `POST /api/ask_questions/stream`
+**Endpoint**: `POST /ask_questions/stream`
 
 ### Step 2: Report Outline
 Create a detailed report outline with chapter structure.
 
-**Endpoint**: `POST /api/plan/stream`
+**Endpoint**: `POST /plan/stream`
 
 After outline is generated, split it into chapters:
 
-**Endpoint**: `POST /api/plan/split/{report_id}`
+**Endpoint**: `POST /plan/split/{report_id}`
 
 ### Step 3: SERP Query Generation
 Generate search engine query lists for each chapter section.
 
-**Endpoint**: `POST /api/serp/stream`
+**Endpoint**: `POST /serp/stream`
 
 ### Step 4: Web Search + RAG
 Execute hybrid searches combining:
@@ -345,12 +322,12 @@ Enhanced search features:
 - **Re-ranking** - LLM-based result re-ranking
 - **RRF Fusion** - Reciprocal Rank Fusion for result merging
 
-**Endpoint**: `POST /api/search/search`
+**Endpoint**: `POST /search/search`
 
 ### Step 5: Search Summarization
 Summarize collected search results into structured learning content.
 
-**Endpoint**: `POST /api/summary/completion`
+**Endpoint**: `POST /summary/completion`
 
 ### Step 6: Final Report Generation
 Generate complete reports with:
@@ -359,13 +336,13 @@ Generate complete reports with:
 - Summary
 - References
 
-**Endpoint**: `POST /api/final/stream`
+**Endpoint**: `POST /final/stream`
 
 ### Export
 Download completed reports in various formats:
 
-**Endpoint**: `GET /api/final/download/pdf/{report_id}`
-**Endpoint**: `GET /api/final/download/word/{report_id}`
+**Endpoint**: `GET /final/download/pdf/{report_id}`
+**Endpoint**: `GET /final/download/word/{report_id}`
 
 ---
 
